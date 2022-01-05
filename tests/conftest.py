@@ -7,4 +7,9 @@
     - https://docs.pytest.org/en/stable/writing_plugins.html
 """
 
-# import pytest
+import pytest
+from ostorlab.agent.testing.mock_agent import agent_mock
+
+@pytest.fixture
+def agent_mock(agent_mock):
+    yield agent_mock

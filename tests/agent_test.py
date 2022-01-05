@@ -1,6 +1,5 @@
 """Unittests for agent."""
 
-
-def testAgent():
+def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mocker):
     """Fake test."""
-    assert True is False if False is True else True is not False
+    assert len(agent_mocker) == 0
