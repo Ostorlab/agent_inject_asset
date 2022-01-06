@@ -1,13 +1,6 @@
-# Template to create agents.
+# Agent Inject Asset
 
-## How to :
-* Create a repository from base_agent template.
-* git remote add template https://github.com/Ostorlab/template_agent.git
+Inject asset is a system agent need to inject the asset into the bus from the runtime.
 
-
-**In case new changes are made to the template**
-
-
-* git fetch template
-* git checkout [branch-to-merge-to]
-* git merge template/main
+The asset passing using shared agreed contract which indicates where the raw asset and the selector are expected
+to be.

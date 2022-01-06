@@ -11,5 +11,5 @@ import pytest
 from ostorlab.agent.testing.mock_agent import agent_mock
 
 @pytest.fixture
-def agent_mock(agent_mock):
+def agent_mocker(agent_mock):
     yield agent_mock
