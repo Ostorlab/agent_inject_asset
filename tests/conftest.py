@@ -7,4 +7,9 @@
     - https://docs.pytest.org/en/stable/writing_plugins.html
 """
 
-# import pytest
+import pytest
+from ostorlab.agent.testing.mock_agent import agent_mock # pylint: disable=W0611
+
+@pytest.fixture
+def agent_mocker(agent_mock): # pylint: disable=W0621
+    yield agent_mock
