@@ -12,6 +12,8 @@ def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mock
     # The pymockfs overrides the whole filesystem, which causes the message serialization to fail as it is lookgin for
     # proto files. This add a passthrough to the real filesystem.
     fs.add_real_directory('/home/')
+    print('XXX', message.__file__)
+
     msg = message.Message.from_data(selector='v3.asset.file.android.apk', data={'content': b'FAKE'})
     fs.create_file(file_path=agent.ASSET_RAW_PATH, contents=msg.raw)
     fs.create_file(file_path=agent.ASSET_SELECTOR_PATH, contents='v3.asset.file.android.apk')
