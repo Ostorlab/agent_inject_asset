@@ -7,7 +7,7 @@ from ostorlab.runtimes import definitions as runtime_definitions
 from src import agent
 
 
-def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mocker, fs):
+def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mock, fs):
     """Ensures file is injected using the provided selector."""
     # The pymockfs overrides the whole filesystem, which causes the message serialization to fail as it is lookgin for
     # proto files. This add a passthrough to the real filesystem.
@@ -25,6 +25,6 @@ def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mock
 
     test_agent = agent.AgentInjectAsset(definition, settings)
     test_agent.run()
-    assert len(agent_mocker) == 1
-    assert agent_mocker[0].selector == 'v3.asset.file.android.apk'
-    assert agent_mocker[0].raw == msg.raw
+    assert len(agent_mock) == 1
+    assert agent_mock[0].selector == 'v3.asset.file.android.apk'
+    assert agent_mock[0].raw == msg.raw
