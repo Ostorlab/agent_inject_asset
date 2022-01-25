@@ -8,7 +8,6 @@ ASSET_SELECTOR_PATH = '/tmp/asset_selector.txt'
 
 logger = logging.getLogger(__name__)
 
-
 class AgentInjectAsset(agent.Agent):
     """Agent Inject Asset."""
 
@@ -23,3 +22,8 @@ class AgentInjectAsset(agent.Agent):
         except FileNotFoundError as e:
             logger.error('expected asset files are not found: %s', e)
             raise
+
+
+if __name__ == '__main__':
+    logger.info('starting agent ...')
+    AgentInjectAsset.main(['--definition', '/app/agent/ostorlab.yaml', '--settings', '/tmp/settings.binproto'])
