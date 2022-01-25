@@ -26,4 +26,4 @@ class AgentInjectAsset(agent.Agent):
 
 if __name__ == '__main__':
     logger.info('starting agent ...')
-    AgentInjectAsset.main(['--definition', '/app/agent/ostorlab.yaml', '--settings', '/tmp/settings.binproto'])
+    AgentInjectAsset.main()
