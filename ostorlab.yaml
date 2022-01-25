@@ -6,3 +6,4 @@ in_selectors: [] # Has no input assets, implements start method only.
 out_selectors: ['v3.asset']
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
+restart_policy : 'none'
