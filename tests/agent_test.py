@@ -4,7 +4,7 @@ from ostorlab.agent import definitions as agent_definitions
 from ostorlab.agent import message
 from ostorlab.runtimes import definitions as runtime_definitions
 
-import agent
+from agent import agent
 
 
 def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(agent_mock, fs):
