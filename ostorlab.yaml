@@ -3,7 +3,7 @@ name: inject_asset
 version: 0.0.1
 description: System agent to inject target asset of scan.
 in_selectors: [] # Has no input assets, implements start method only.
-out_selectors: ['v3.asset']
+out_selectors: ['v3.asset.file.android.aab', 'v3.asset.file.android.apk', 'v3.asset.dns.a_record', 'v3.asset.file','v3.asset.file.ios.ipa', 'v3.asset.ip', 'v3.asset.ip.v4', 'v3.asset.ip.v6']
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 restart_policy : 'none'
