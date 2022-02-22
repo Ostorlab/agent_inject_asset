@@ -13,7 +13,7 @@ _Inject Asset is responsible for injecting an asset into the bus from the runtim
 ---
 
 <p align="center">
-<img src="" alt="agent_inject_asset" />
+<img src="https://raw.githubusercontent.com/Ostorlab/agent_inject_asset/main/images/logo.png" alt="agent_inject_asset" />
 </p>
 
 This repository is an implementation of the default inject asset agent.Inject Asset is a default agent needed to run a scan using the local runtime.
