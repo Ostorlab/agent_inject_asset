@@ -2,11 +2,21 @@
 import logging
 
 from ostorlab.agent import agent
+from rich import logging as rich_logging
 
 ASSET_RAW_PATH = '/tmp/asset.binproto'
 ASSET_SELECTOR_PATH = '/tmp/asset_selector.txt'
 
+
+logging.basicConfig(
+    format='%(message)s',
+    datefmt='[%X]',
+    handlers=[rich_logging.RichHandler(rich_tracebacks=True)],
+    level='INFO',
+    force=True
+)
 logger = logging.getLogger(__name__)
+
 
 class AgentInjectAsset(agent.Agent):
     """Agent Inject Asset."""
