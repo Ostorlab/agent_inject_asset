@@ -7,6 +7,7 @@ ASSET_RAW_PATH = '/tmp/asset.binproto'
 ASSET_SELECTOR_PATH = '/tmp/asset_selector.txt'
 
 logger = logging.getLogger(__name__)
+logger.setLevel('INFO')
 
 class AgentInjectAsset(agent.Agent):
     """Agent Inject Asset."""
