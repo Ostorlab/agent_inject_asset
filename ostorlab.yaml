@@ -20,9 +20,9 @@ description: |
   ```
 
   ## License
-  [Apache](./LICENSE)
+  [Apache-2.0](./LICENSE)
 
-license: Apache
+license: Apache-2.0
 source: https://github.com/Ostorlab/agent_inject_asset
 in_selectors: [] # Has no input assets, implements start method only.
 out_selectors: ['v3.asset.file.android.aab', 'v3.asset.file.android.apk', 'v3.asset.dns.a_record', 'v3.asset.file','v3.asset.file.ios.ipa', 'v3.asset.ip.v4', 'v3.asset.ip.v6']
