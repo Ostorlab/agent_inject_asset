@@ -56,6 +56,7 @@ def testInjectAssetAgent_withMultipleAsset_rawAssetAreInjected(agent_mock, fs):
     assert agent_mock[1].selector == 'v3.asset.file.android.apk'
     assert agent_mock[1].raw == msg.raw
 
+
 def testInjectAssetAgent_whenLegacyAssetInjection_rawAssetIsInjected(agent_mock, fs):
     """Ensures file is injected using the provided selector."""
     # The pymockfs overrides the whole filesystem, which causes the message serialization to fail as it is lookgin for
