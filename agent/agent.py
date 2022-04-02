@@ -17,6 +17,7 @@ ASSET_SELECTOR_PATH = '/tmp/asset_selector.txt'
 logging.basicConfig(
     format='%(message)s',
     datefmt='[%X]',
+    level='INFO',
     handlers=[rich_logging.RichHandler(rich_tracebacks=True)],
     force=True
 )
