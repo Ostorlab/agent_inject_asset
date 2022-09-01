@@ -1,7 +1,7 @@
 """Unittests for inject asset agent."""
 
 from ostorlab.agent import definitions as agent_definitions
-from ostorlab.agent import message
+from ostorlab.agent.message import message
 from ostorlab.runtimes import definitions as runtime_definitions
 
 from agent import agent
