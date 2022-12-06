@@ -1,6 +1,6 @@
 kind: Agent
 name: inject_asset
-version: 0.2.3
+version: 0.2.4
 description: |
   This repository is an implementation of the default inject asset agent.Inject Asset is a default agent needed to run a scan using the local runtime.
 
@@ -25,7 +25,7 @@ description: |
 license: Apache-2.0
 source: https://github.com/Ostorlab/agent_inject_asset
 in_selectors: [] # Has no input assets, implements start method only.
-out_selectors: 
+out_selectors:
   - v3.asset.file.android.aab
   - v3.asset.file.android.apk
   - v3.asset.dns.a_record
@@ -36,6 +36,8 @@ out_selectors:
   - v3.asset.domain_name
   - v3.asset.agent
   - v3.asset.link
+  - v3.asset.store.android_store
+  - v3.asset.store.ios_store
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 restart_policy : 'none'
