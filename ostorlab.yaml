@@ -42,6 +42,6 @@ docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 supported_architectures:
   - linux/arm64/v8
-  - linux/amd64
+  - linux/x86_64
 restart_policy : 'none'
 image: images/logo.png
