@@ -1,4 +1,5 @@
 """Sample agent implementation"""
+
 import glob
 import logging
 import pathlib
