@@ -20,17 +20,17 @@ This repository is an implementation of the default inject asset agent.Inject As
 
 ## Usage
 
-Agent Inject Asset can be installed directly from the ostorlab agent store or built from this repository.
+Agent Inject Asset can be installed directly from the oxo agent store or built from this repository.
 
- ### Install directly from ostorlab agent store
+ ### Install directly from oxo agent store
 
  ```shell
- ostorlab agent install agent/ostorlab/inject_asset
+ oxo agent install agent/ostorlab/inject_asset
  ```
 The agent will be automatically installed and updated by simply passing `--install` flag:
 
 ```shell
-ostorlab scan run --install --agent agent/ostorlab/tsunami ip 8.8.8.8
+oxo scan run --install --agent agent/ostorlab/tsunami ip 8.8.8.8
 ```
 
 ## License
