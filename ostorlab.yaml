@@ -38,6 +38,7 @@ out_selectors:
   - v3.asset.link
   - v3.asset.store.android_store
   - v3.asset.store.ios_store
+  - v3.asset.store.ios_testflight
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 supported_architectures:
