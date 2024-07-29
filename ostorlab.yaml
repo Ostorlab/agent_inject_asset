@@ -1,6 +1,6 @@
 kind: Agent
 name: inject_asset
-version: 1.0.0
+version: 1.0.1
 description: |
   This repository is an implementation of the default inject asset agent.Inject Asset is a default agent needed to run a scan using the local runtime.
 
@@ -39,6 +39,7 @@ out_selectors:
   - v3.asset.store.android_store
   - v3.asset.store.ios_store
   - v3.asset.store.ios_testflight
+  - v3.asset.file.api_schema
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 supported_architectures:
