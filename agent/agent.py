@@ -37,9 +37,10 @@ class AgentInjectAsset(agent.Agent):
     def _legacy_emit_assets(self):
         """Asset injection as done by Ostorlab version 0.3.1 and before."""
         try:
-            with open(ASSET_RAW_PATH, "rb") as asset_raw_o, open(
-                ASSET_SELECTOR_PATH, "r", encoding="utf-8"
-            ) as asset_selector_o:
+            with (
+                open(ASSET_RAW_PATH, "rb") as asset_raw_o,
+                open(ASSET_SELECTOR_PATH, "r", encoding="utf-8") as asset_selector_o,
+            ):
                 asset = asset_raw_o.read()
                 selector = asset_selector_o.read()
                 logger.info(
@@ -56,9 +57,12 @@ class AgentInjectAsset(agent.Agent):
             for raw_asset_path in glob.glob(f"{ASSET_DIR}{RAW_PATTERN}*"):
                 asset_id = raw_asset_path.split("_", 1)[1]
                 asset_selector_path = f"{SELECTOR_PATTERN}{asset_id}"
-                with open(raw_asset_path, "rb") as asset_raw_o, open(
-                    asset_selector_path, "r", encoding="utf-8"
-                ) as asset_selector_o:
+                with (
+                    open(raw_asset_path, "rb") as asset_raw_o,
+                    open(
+                        asset_selector_path, "r", encoding="utf-8"
+                    ) as asset_selector_o,
+                ):
                     asset = asset_raw_o.read()
                     selector = asset_selector_o.read()
                     logger.info(
