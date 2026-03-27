@@ -4,7 +4,7 @@ RUN pip install uv
 RUN mkdir /install
 WORKDIR /install
 COPY requirement.txt /requirement.txt
-RUN uv pip install --prefix=/install --system -r /requirement.txt
+RUN uv pip install --prefix=/install -r /requirement.txt
 FROM base
 COPY --from=builder /install /usr/local
 RUN mkdir -p /app/agent
