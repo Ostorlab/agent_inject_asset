@@ -1,4 +1,4 @@
-FROM python:3.11-slim as base
+FROM python:3.14-slim as base
 FROM base as builder
 RUN pip install uv
 RUN mkdir /install
@@ -11,4 +11,4 @@ RUN mkdir -p /app/agent
 COPY agent /app/agent
 COPY ostorlab.yaml /app/agent/ostorlab.yaml
 WORKDIR /app/agent
-CMD ["python3.11", "/app/agent/agent.py"]
+CMD ["python", "/app/agent/agent.py"]
