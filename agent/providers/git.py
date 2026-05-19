@@ -8,7 +8,7 @@ import logging
 import os
 import subprocess
 
-from . import errors
+from agent.providers import errors
 
 logger = logging.getLogger(__name__)
 
