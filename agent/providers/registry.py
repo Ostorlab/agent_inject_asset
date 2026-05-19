@@ -6,11 +6,11 @@ unaware of how they are selected.
 
 import urllib.parse
 
-from . import base
-from . import bitbucket
-from . import errors
-from . import github
-from . import gitlab
+from agent.providers import base
+from agent.providers import bitbucket
+from agent.providers import errors
+from agent.providers import github
+from agent.providers import gitlab
 
 _PROVIDERS_BY_HOST: dict[str, type[base.RepositoryCloner]] = {
     "github.com": github.GitHubCloner,

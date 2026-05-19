@@ -2,9 +2,9 @@
 
 import logging
 
-from . import base
-from . import errors
-from . import git
+from agent.providers import base
+from agent.providers import errors
+from agent.providers import git
 
 logger = logging.getLogger(__name__)
 
