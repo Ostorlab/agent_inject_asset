@@ -9,7 +9,7 @@ from ostorlab.agent.message import message
 from ostorlab.agent.message import serializer
 from ostorlab.runtimes import definitions as runtime_definitions
 
-import agent
+from agent import agent as agent_module
 
 _REAL_MESSAGE_CODE_PATH = pathlib.Path(serializer.__file__).resolve().parent / "proto"
 _FAKE_MESSAGE_CODE_PATH = "/tmp/ostorlab/agent/message/proto"
@@ -54,7 +54,7 @@ def testInjectAssetAgent_whenExpectFilesArePresent_rawAssetIsInjected(
         key="agent/ostorlab/agent_inject_asset"
     )
 
-    test_agent = agent.AgentInjectAsset(definition, settings)
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
     test_agent.start()
     assert len(agent_mock) == 1
     assert agent_mock[0].selector == "v3.asset.file.android.apk"
@@ -89,7 +89,7 @@ def testInjectAssetAgent_withMultipleAsset_rawAssetAreInjected(
         key="agent/ostorlab/agent_inject_asset"
     )
 
-    test_agent = agent.AgentInjectAsset(definition, settings)
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
     test_agent.start()
     assert len(agent_mock) == 2
     assert agent_mock[0].selector == "v3.asset.file.android.apk"
@@ -110,9 +110,10 @@ def testInjectAssetAgent_whenLegacyAssetInjection_rawAssetIsInjected(
     fs.add_real_directory("/opt/")
     _add_real_ostorlab_message_protos(fs, monkeypatch)
 
-    fs.create_file(file_path=agent.ASSET_RAW_PATH, contents=APK_MESSAGE_RAW)
+    fs.create_file(file_path=agent_module.ASSET_RAW_PATH, contents=APK_MESSAGE_RAW)
     fs.create_file(
-        file_path=agent.ASSET_SELECTOR_PATH, contents="v3.asset.file.android.apk"
+        file_path=agent_module.ASSET_SELECTOR_PATH,
+        contents="v3.asset.file.android.apk",
     )
 
     definition = agent_definitions.AgentDefinition(
@@ -122,7 +123,7 @@ def testInjectAssetAgent_whenLegacyAssetInjection_rawAssetIsInjected(
         key="agent/ostorlab/agent_inject_asset"
     )
 
-    test_agent = agent.AgentInjectAsset(definition, settings)
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
     test_agent.run()
     assert len(agent_mock) == 1
     assert agent_mock[0].selector == "v3.asset.file.android.apk"
