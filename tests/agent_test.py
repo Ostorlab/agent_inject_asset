@@ -1,6 +1,6 @@
 """Unittests for inject asset agent."""
 
-from pathlib import Path
+import pathlib
 
 import pytest
 import pyfakefs.fake_filesystem
@@ -11,7 +11,7 @@ from ostorlab.runtimes import definitions as runtime_definitions
 
 import agent
 
-_REAL_MESSAGE_CODE_PATH = Path(serializer.__file__).resolve().parent / "proto"
+_REAL_MESSAGE_CODE_PATH = pathlib.Path(serializer.__file__).resolve().parent / "proto"
 _FAKE_MESSAGE_CODE_PATH = "/tmp/ostorlab/agent/message/proto"
 
 APK_MESSAGE_RAW = message.Message.from_data(
