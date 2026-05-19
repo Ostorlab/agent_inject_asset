@@ -2,11 +2,11 @@
 
 import pytest
 
-from providers import bitbucket
-from providers import errors
-from providers import github
-from providers import gitlab
-from providers import registry
+from agent.providers import bitbucket
+from agent.providers import errors
+from agent.providers import github
+from agent.providers import gitlab
+from agent.providers import registry
 
 
 def testClonerForUrl_whenGitHubUrl_returnsGitHubCloner() -> None:

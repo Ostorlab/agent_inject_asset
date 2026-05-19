@@ -2,10 +2,10 @@
 
 import pytest
 
-from providers import base
-from providers import errors
-from providers import git
-from providers import github
+from agent.providers import base
+from agent.providers import errors
+from agent.providers import git
+from agent.providers import github
 
 
 def testClone_whenRepositoryIsPublic_clonesAnonymously(

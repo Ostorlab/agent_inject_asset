@@ -8,9 +8,9 @@ from ostorlab.agent import agent
 from ostorlab.agent.message import message as agent_message
 from rich import logging as rich_logging
 
-from providers import base
-from providers import errors as provider_errors
-from providers import registry
+from agent.providers import base
+from agent.providers import errors as provider_errors
+from agent.providers import registry
 
 ASSET_DIR = "/asset/"
 RAW_PATTERN = "asset.binproto_"
