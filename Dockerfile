@@ -6,6 +6,9 @@ WORKDIR /install
 COPY requirement.txt /requirement.txt
 RUN uv pip install --prefix=/install -r /requirement.txt
 FROM base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
 RUN mkdir -p /app/agent
 COPY agent /app/agent
