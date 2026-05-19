@@ -40,6 +40,12 @@ out_selectors:
   - v3.asset.store.ios_store
   - v3.asset.store.ios_testflight
   - v3.asset.file.api_schema
+  - v3.asset.repository
+
+volumes:
+  - name: repository_code
+    path: /code
+    read_only: false
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 supported_architectures:
