@@ -27,6 +27,11 @@ source: https://github.com/Ostorlab/agent_inject_asset
 in_selectors: [] # Has no input assets, implements start method only.
 out_selectors:
   - v3
+
+volumes:
+  - name: repository_code
+    path: /code
+    read_only: false
 docker_file_path : Dockerfile # Dockerfile path for automated release build.
 docker_build_root : . # Docker build dir for automated release build.
 supported_architectures:
