@@ -45,9 +45,7 @@ def is_public_repository(repository_url: str) -> bool:
     return result.returncode == 0
 
 
-def clone_repository(
-    repository_url: str, commit_hash: str, destination: str
-) -> None:
+def clone_repository(repository_url: str, commit_hash: str, destination: str) -> None:
     """Clone `repository_url` into `destination` and check out `commit_hash`.
 
     Raises `CloneError` when the clone or the checkout fails.

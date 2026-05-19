@@ -28,6 +28,4 @@ class GitHubCloner(base.RepositoryCloner):
             return
 
         self.ensure_credentials()
-        raise errors.CloneError(
-            "GitHub authenticated cloning is not yet implemented"
-        )
+        raise errors.CloneError("GitHub authenticated cloning is not yet implemented")

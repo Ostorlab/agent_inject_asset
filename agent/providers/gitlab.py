@@ -28,6 +28,4 @@ class GitLabCloner(base.RepositoryCloner):
             return
 
         self.ensure_credentials()
-        raise errors.CloneError(
-            "GitLab authenticated cloning is not yet implemented"
-        )
+        raise errors.CloneError("GitLab authenticated cloning is not yet implemented")
