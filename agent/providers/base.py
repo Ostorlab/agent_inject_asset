@@ -15,13 +15,16 @@ class RepositoryCheckoutRequest:
 class RepositoryCloner(abc.ABC):
     """Contract for repository checkout providers."""
 
+    def __init__(self, token: str | None = None) -> None:
+        self._token = token
+
     @abc.abstractmethod
     def ensure_credentials(self) -> None:
-        """Load and validate this provider's credentials.
+        """Validate that this provider has the credentials it needs.
 
         Invoked by `clone()` only for a private repository. Raises
         `MissingCredentialsError` when authentication is required but no
-        credentials are configured.
+        token is configured.
         """
         raise NotImplementedError
 

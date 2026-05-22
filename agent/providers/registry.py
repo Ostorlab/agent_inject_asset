@@ -19,7 +19,10 @@ _PROVIDERS_BY_HOST: dict[str, type[base.RepositoryCloner]] = {
 }
 
 
-def cloner_for_url(repository_url: str) -> base.RepositoryCloner:
+def cloner_for_url(
+    repository_url: str,
+    token: str | None = None,
+) -> base.RepositoryCloner:
     """Return a repository cloner for `repository_url`, matched by host.
 
     Raises `UnsupportedProviderError` when no provider matches the host.
@@ -30,4 +33,4 @@ def cloner_for_url(repository_url: str) -> base.RepositoryCloner:
         raise errors.UnsupportedProviderError(
             f"no repository provider for URL: {repository_url}"
         )
-    return provider_class()
+    return provider_class(token or None)

@@ -28,6 +28,11 @@ in_selectors: [] # Has no input assets, implements start method only.
 out_selectors:
   - v3
 
+args:
+  - name: github_token
+    type: "string"
+    description: "GitHub Personal Access Token for cloning private repositories."
+
 volumes:
   - name: repository_code
     path: /code

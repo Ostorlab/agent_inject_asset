@@ -34,3 +34,13 @@ def testClonerForUrl_whenUnknownHost_raisesUnsupportedProviderError() -> None:
     """A URL whose host matches no provider raises an error."""
     with pytest.raises(errors.UnsupportedProviderError):
         registry.cloner_for_url("https://example.com/owner/repo")
+
+
+def testClonerForUrl_whenTokenProvided_passesTokenToCloner() -> None:
+    """A token passed to the registry is stored on the returned cloner."""
+    cloner = registry.cloner_for_url(
+        "https://github.com/owner/repo", token="ghp_test_token"
+    )
+
+    assert isinstance(cloner, github.GitHubCloner)
+    assert cloner._token == "ghp_test_token"
