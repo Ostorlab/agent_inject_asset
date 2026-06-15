@@ -71,14 +71,62 @@ def clone_repository(repository_url: str, commit_hash: str, destination: str) ->
     Raises `CloneError` when the clone or the checkout fails.
     """
     redacted = redact_url(repository_url)
+    
+    # We use -c core.hooksPath=/dev/null to disable any local hooks execution for security.
+    # We use --depth 1 to perform a shallow clone for speed and efficiency.
     _run_git(
-        ["clone", repository_url, destination],
+        [
+            "-c",
+            "core.hooksPath=/dev/null",
+            "clone",
+            "--depth",
+            "1",
+            repository_url,
+            destination,
+        ],
         error=f"failed to clone {redacted}",
     )
-    _run_git(
-        ["-C", destination, "checkout", commit_hash],
-        error=f"failed to check out {commit_hash}",
-    )
+    
+    try:
+        # Try checking out directly. This will work if commit_hash is the tip of the default branch.
+        _run_git(
+            [
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                destination,
+                "checkout",
+                commit_hash,
+            ],
+            error=f"failed to check out {commit_hash}",
+        )
+    except errors.CloneError:
+        # If the commit is not at the tip, shallow fetch the specific commit.
+        _run_git(
+            [
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                destination,
+                "fetch",
+                "--depth",
+                "1",
+                "origin",
+                commit_hash,
+            ],
+            error=f"failed to fetch specific commit {commit_hash} from {redacted}",
+        )
+        _run_git(
+            [
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                destination,
+                "checkout",
+                commit_hash,
+            ],
+            error=f"failed to check out {commit_hash} after fetch",
+        )
 
 
 def _run_git(args: list[str], error: str) -> None:
