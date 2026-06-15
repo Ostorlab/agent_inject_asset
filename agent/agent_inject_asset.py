@@ -13,6 +13,7 @@ from agent.providers import base
 from agent.providers import git
 from agent.providers import errors as provider_errors
 from agent.providers import registry
+from agent.providers import token
 
 ASSET_DIR = "/asset/"
 RAW_PATTERN = "asset.binproto_"
@@ -89,6 +90,34 @@ class AgentInjectAsset(agent.Agent):
         logger.info("injecting asset of size %d to selector %s", len(asset), selector)
         self.emit_raw(selector=selector, raw=asset)
 
+    def _authenticate_if_needed(
+        self, ref: base.RepositoryCheckoutRequest, cloner: base.RepositoryCloner
+    ) -> None:
+        """Injects authentication token into ref if the repository is private."""
+        if git.is_public_repository(ref.repository_url) is False:
+            # Attempt to fetch a platform token if not embedded and API keys are available
+            if (
+                cloner.PROVIDER_NAME is not None
+                and urllib.parse.urlparse(ref.repository_url).username is None
+            ):
+                api_url = self.args.get("api_reporting_engine_base_url")
+                api_key = self.args.get("reporting_engine_api_key")
+
+                if api_url is not None and api_key is not None:
+                    fetched_token = token.fetch_platform_token(
+                        api_url, api_key, cloner.PROVIDER_NAME
+                    )
+                    if fetched_token is not None:
+                        ref.token = fetched_token
+
+            if (
+                ref.token is None
+                and urllib.parse.urlparse(ref.repository_url).username is None
+            ):
+                raise provider_errors.MissingCredentialsError(
+                    f"Credentials are required for private repository {git.redact_url(ref.repository_url)}"
+                )
+
     def _checkout_repository(self, asset: bytes) -> None:
         """Clone the repository asset onto the shared scan volume.
 
@@ -96,42 +125,31 @@ class AgentInjectAsset(agent.Agent):
         checked out.
         """
         repository_message = agent_message.Message.from_raw(REPOSITORY_SELECTOR, asset)
-        
+
         # Enums are usually parsed as strings or integers.
-        # We need the string name for the provider.
         provider = repository_message.data.get("provider")
-        if isinstance(provider, int):
-            # Mapping enum integer back to string if necessary, assuming standard proto to dict 
-            # might do this. Better to just use the string if available.
-            # In ostorlab, enums are typically strings in the message dictionary.
-            pass
-            
+
         ref = base.RepositoryCheckoutRequest(
             repository_url=repository_message.data.get("repository_url", ""),
             commit_hash=repository_message.data.get("commit_hash", ""),
-            provider=provider
+            provider=provider,
         )
         if ref.repository_url == "" or ref.commit_hash == "":
             raise provider_errors.CloneError(
                 "repository asset is missing repository_url or commit_hash"
             )
-            
+
         cloner = registry.cloner_for_url(ref.repository_url, ref.provider)
-        
-        # Attempt to fetch a platform token if not embedded and API keys are available
-        if cloner.PROVIDER_NAME and not urllib.parse.urlparse(ref.repository_url).username:
-            api_url = self.args.get("api_reporting_engine_base_url")
-            api_key = self.args.get("reporting_engine_api_key")
-            
-            if api_url and api_key:
-                from agent.providers import token
-                fetched_token = token.fetch_platform_token(api_url, api_key, cloner.PROVIDER_NAME)
-                if fetched_token:
-                    ref.token = fetched_token
+
+        # If the repository is public (or URL already contains working credentials), we do not need to fetch a token.
+        self._authenticate_if_needed(ref, cloner)
 
         cloner.clone(ref, SHARED_VOLUME_DIR)
-        logger.info("checked out %s into %s", git.redact_url(ref.repository_url), SHARED_VOLUME_DIR)
-
+        logger.info(
+            "checked out %s into %s",
+            git.redact_url(ref.repository_url),
+            SHARED_VOLUME_DIR,
+        )
 
 
 if __name__ == "__main__":

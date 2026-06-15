@@ -29,16 +29,16 @@ def _non_interactive_env() -> dict[str, str]:
 def redact_url(url: str) -> str:
     """Redact credentials from a repository URL."""
     parsed = urllib.parse.urlparse(url)
-    if parsed.password:
+    if parsed.password is not None:
         # replace the password with ***
         netloc = f"{parsed.username}:***@{parsed.hostname}"
-        if parsed.port:
+        if parsed.port is not None:
             netloc += f":{parsed.port}"
         parsed = parsed._replace(netloc=netloc)
-    elif parsed.username:
+    elif parsed.username is not None:
         # if only username is present and it might be a token
         netloc = f"***@{parsed.hostname}"
-        if parsed.port:
+        if parsed.port is not None:
             netloc += f":{parsed.port}"
         parsed = parsed._replace(netloc=netloc)
     return urllib.parse.urlunparse(parsed)

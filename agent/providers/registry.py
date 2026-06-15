@@ -5,7 +5,6 @@ unaware of how they are selected.
 """
 
 import urllib.parse
-from typing import Optional
 
 from agent.providers import base
 from agent.providers import bitbucket
@@ -30,12 +29,15 @@ _PROVIDERS_BY_NAME: dict[str, type[base.RepositoryCloner]] = {
     "GIT": git.GitCloner,
 }
 
-def cloner_for_url(repository_url: str, provider: Optional[str] = None) -> base.RepositoryCloner:
+
+def cloner_for_url(
+    repository_url: str, provider: str | None = None
+) -> base.RepositoryCloner:
     """Return a repository cloner for `repository_url`, matched by name or host.
 
     Raises `UnsupportedProviderError` when no provider matches.
     """
-    if provider and provider in _PROVIDERS_BY_NAME:
+    if provider is not None and provider in _PROVIDERS_BY_NAME:
         return _PROVIDERS_BY_NAME[provider]()
 
     host = urllib.parse.urlparse(repository_url).hostname

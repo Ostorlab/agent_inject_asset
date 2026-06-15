@@ -27,4 +27,3 @@ class RepositoryCloner(abc.ABC):
         Raises `CloneError` on any failure.
         """
         raise NotImplementedError
-

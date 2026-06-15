@@ -11,7 +11,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
 RUN mkdir -p /app/agent
+ENV PYTHONPATH=/app
 COPY agent /app/agent
 COPY ostorlab.yaml /app/agent/ostorlab.yaml
-WORKDIR /app/agent
+WORKDIR /app
 CMD ["python", "/app/agent/agent_inject_asset.py"]

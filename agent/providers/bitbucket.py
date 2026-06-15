@@ -16,13 +16,13 @@ class BitbucketCloner(base.RepositoryCloner):
 
     def clone(self, ref: base.RepositoryCheckoutRequest, destination: str) -> None:
         url = ref.repository_url
-        if ref.token:
+        if ref.token is not None:
             parsed = urllib.parse.urlparse(url)
             netloc = f"x-token-auth:{ref.token}@{parsed.hostname}"
-            if parsed.port:
+            if parsed.port is not None:
                 netloc += f":{parsed.port}"
             url = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
-            
+
         redacted = git.redact_url(url)
         logger.info("cloning Bitbucket repository %s", redacted)
         git.clone_repository(url, ref.commit_hash, destination)
