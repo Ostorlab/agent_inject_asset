@@ -1,31 +1,28 @@
 """GitLab repository provider."""
 
 import logging
+import urllib.parse
 
 from agent.providers import base
-from agent.providers import errors
 from agent.providers import git
 
 logger = logging.getLogger(__name__)
 
 
 class GitLabCloner(base.RepositoryCloner):
-    """Checks out GitLab-hosted repositories onto the shared scan volume.
+    """Checks out GitLab-hosted repositories onto the shared scan volume."""
 
-    A public repository is cloned anonymously. Authenticated cloning of private
-    repositories is finalised when this provider is built out — see
-    REPOSITORY_PROVIDER_DESIGN.md.
-    """
-
-    def ensure_credentials(self) -> None:
-        # TODO(amat-osto): validate GitLab credentials once the agent args are defined.
-        return None
+    PROVIDER_NAME = "GITLAB"
 
     def clone(self, ref: base.RepositoryCheckoutRequest, destination: str) -> None:
-        if git.is_public_repository(ref.repository_url) is True:
-            logger.info("cloning public repository %s", ref.repository_url)
-            git.clone_repository(ref.repository_url, ref.commit_hash, destination)
-            return
-
-        self.ensure_credentials()
-        raise errors.CloneError("GitLab authenticated cloning is not yet implemented")
+        url = ref.repository_url
+        if ref.token:
+            parsed = urllib.parse.urlparse(url)
+            netloc = f"oauth2:{ref.token}@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            url = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+            
+        redacted = git.redact_url(url)
+        logger.info("cloning GitLab repository %s", redacted)
+        git.clone_repository(url, ref.commit_hash, destination)

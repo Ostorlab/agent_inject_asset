@@ -3,12 +3,14 @@
 import glob
 import logging
 import pathlib
+import urllib.parse
 
 from ostorlab.agent import agent
 from ostorlab.agent.message import message as agent_message
 from rich import logging as rich_logging
 
 from agent.providers import base
+from agent.providers import git
 from agent.providers import errors as provider_errors
 from agent.providers import registry
 
@@ -94,17 +96,42 @@ class AgentInjectAsset(agent.Agent):
         checked out.
         """
         repository_message = agent_message.Message.from_raw(REPOSITORY_SELECTOR, asset)
+        
+        # Enums are usually parsed as strings or integers.
+        # We need the string name for the provider.
+        provider = repository_message.data.get("provider")
+        if isinstance(provider, int):
+            # Mapping enum integer back to string if necessary, assuming standard proto to dict 
+            # might do this. Better to just use the string if available.
+            # In ostorlab, enums are typically strings in the message dictionary.
+            pass
+            
         ref = base.RepositoryCheckoutRequest(
             repository_url=repository_message.data.get("repository_url", ""),
             commit_hash=repository_message.data.get("commit_hash", ""),
+            provider=provider
         )
         if ref.repository_url == "" or ref.commit_hash == "":
             raise provider_errors.CloneError(
                 "repository asset is missing repository_url or commit_hash"
             )
-        cloner = registry.cloner_for_url(ref.repository_url)
+            
+        cloner = registry.cloner_for_url(ref.repository_url, ref.provider)
+        
+        # Attempt to fetch a platform token if not embedded and API keys are available
+        if cloner.PROVIDER_NAME and not urllib.parse.urlparse(ref.repository_url).username:
+            api_url = self.args.get("api_reporting_engine_base_url")
+            api_key = self.args.get("reporting_engine_api_key")
+            
+            if api_url and api_key:
+                from agent.providers import token
+                fetched_token = token.fetch_platform_token(api_url, api_key, cloner.PROVIDER_NAME)
+                if fetched_token:
+                    ref.token = fetched_token
+
         cloner.clone(ref, SHARED_VOLUME_DIR)
-        logger.info("checked out %s into %s", ref.repository_url, SHARED_VOLUME_DIR)
+        logger.info("checked out %s into %s", git.redact_url(ref.repository_url), SHARED_VOLUME_DIR)
+
 
 
 if __name__ == "__main__":

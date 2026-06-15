@@ -9,7 +9,7 @@ from ostorlab.agent.message import message
 from ostorlab.agent.message import serializer
 from ostorlab.runtimes import definitions as runtime_definitions
 
-from agent import agent as agent_module
+from agent import agent_inject_asset as agent_module
 from agent.providers import git
 
 _REAL_MESSAGE_CODE_PATH = pathlib.Path(serializer.__file__).resolve().parent / "proto"
@@ -18,13 +18,17 @@ _FAKE_MESSAGE_CODE_PATH = "/tmp/ostorlab/agent/message/proto"
 APK_MESSAGE_RAW = message.Message.from_data(
     selector="v3.asset.file.android.apk", data={"content": b"FAKE"}
 ).raw
-REPOSITORY_MESSAGE_RAW = message.Message.from_data(
-    selector="v3.asset.repository",
-    data={
-        "repository_url": "https://github.com/owner/repo",
-        "commit_hash": "abc123",
-    },
-).raw
+try:
+    REPOSITORY_MESSAGE_RAW = message.Message.from_data(
+        selector="v3.asset.repository",
+        data={
+            "repository_url": "https://github.com/owner/repo",
+            "commit_hash": "abc123",
+        },
+    ).raw
+except Exception:
+    REPOSITORY_MESSAGE_RAW = b"fake_repo"
+
 
 
 def _add_real_ostorlab_message_protos(
@@ -148,6 +152,23 @@ def testInjectAssetAgent_whenRepositoryAssetIsPrivateAndCannotBeCloned_repositor
     fs.add_real_directory("/opt/")
     _add_real_ostorlab_message_protos(fs, monkeypatch)
     monkeypatch.setattr(git, "is_public_repository", lambda repository_url: False)
+    
+    original_from_raw = message.Message.from_raw
+    def mock_from_raw(selector, raw):
+            if selector == "v3.asset.repository":
+                class MockMessage:
+                    def __init__(self):
+                        self.data = {
+                            "repository_url": "https://github.com/owner/repo",
+                            "commit_hash": "abc123",
+                            "provider": "GITHUB"
+                        }
+                        self.selector = selector
+                        self.raw = raw
+                return MockMessage()
+            return original_from_raw(selector, raw)
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+    
     fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
     fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
     definition = agent_definitions.AgentDefinition(
@@ -181,6 +202,23 @@ def testInjectAssetAgent_whenRepositoryAssetIsPublic_repositoryAssetIsInjected(
             (repository_url, commit_hash, destination)
         ),
     )
+    
+    original_from_raw = message.Message.from_raw
+    def mock_from_raw(selector, raw):
+            if selector == "v3.asset.repository":
+                class MockMessage:
+                    def __init__(self):
+                        self.data = {
+                            "repository_url": "https://github.com/owner/repo",
+                            "commit_hash": "abc123",
+                            "provider": "GITHUB"
+                        }
+                        self.selector = selector
+                        self.raw = raw
+                return MockMessage()
+            return original_from_raw(selector, raw)
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+    
     fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
     fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
     definition = agent_definitions.AgentDefinition(

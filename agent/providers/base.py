@@ -2,6 +2,7 @@
 
 import abc
 import dataclasses
+from typing import Optional
 
 
 @dataclasses.dataclass
@@ -10,26 +11,20 @@ class RepositoryCheckoutRequest:
 
     repository_url: str
     commit_hash: str
+    provider: Optional[str] = None
+    token: Optional[str] = None
 
 
 class RepositoryCloner(abc.ABC):
     """Contract for repository checkout providers."""
 
-    @abc.abstractmethod
-    def ensure_credentials(self) -> None:
-        """Load and validate this provider's credentials.
-
-        Invoked by `clone()` only for a private repository. Raises
-        `MissingCredentialsError` when authentication is required but no
-        credentials are configured.
-        """
-        raise NotImplementedError
+    PROVIDER_NAME: Optional[str] = None
 
     @abc.abstractmethod
     def clone(self, ref: RepositoryCheckoutRequest, destination: str) -> None:
-        """Check out `ref` into `destination`, detecting public vs private.
+        """Check out `ref` into `destination`.
 
-        A public repository is cloned anonymously; a private one falls back to
-        authenticated cloning. Raises `CloneError` on any failure.
+        Raises `CloneError` on any failure.
         """
         raise NotImplementedError
+

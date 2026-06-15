@@ -7,7 +7,9 @@ instead of blocking on a credentials prompt.
 import logging
 import os
 import subprocess
+import urllib.parse
 
+from agent.providers import base
 from agent.providers import errors
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,24 @@ def _non_interactive_env() -> dict[str, str]:
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_ASKPASS"] = "true"
     return env
+
+
+def redact_url(url: str) -> str:
+    """Redact credentials from a repository URL."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.password:
+        # replace the password with ***
+        netloc = f"{parsed.username}:***@{parsed.hostname}"
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        parsed = parsed._replace(netloc=netloc)
+    elif parsed.username:
+        # if only username is present and it might be a token
+        netloc = f"***@{parsed.hostname}"
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        parsed = parsed._replace(netloc=netloc)
+    return urllib.parse.urlunparse(parsed)
 
 
 def is_public_repository(repository_url: str) -> bool:
@@ -39,7 +59,7 @@ def is_public_repository(repository_url: str) -> bool:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as e:
-        logger.warning("git ls-remote failed for %s: %s", repository_url, e)
+        logger.warning("git ls-remote failed for %s: %s", redact_url(repository_url), e)
         return False
 
     return result.returncode == 0
@@ -50,9 +70,10 @@ def clone_repository(repository_url: str, commit_hash: str, destination: str) ->
 
     Raises `CloneError` when the clone or the checkout fails.
     """
+    redacted = redact_url(repository_url)
     _run_git(
         ["clone", repository_url, destination],
-        error=f"failed to clone {repository_url}",
+        error=f"failed to clone {redacted}",
     )
     _run_git(
         ["-C", destination, "checkout", commit_hash],
@@ -77,3 +98,18 @@ def _run_git(args: list[str], error: str) -> None:
         raise errors.CloneError(
             f"{error}: {result.stderr.decode(errors='replace').strip()}"
         )
+
+
+class GitCloner(base.RepositoryCloner):
+    """Checks out Git-hosted repositories onto the shared scan volume."""
+
+    def clone(self, ref: base.RepositoryCheckoutRequest, destination: str) -> None:
+        redacted = redact_url(ref.repository_url)
+        logger.info("cloning repository %s", redacted)
+        # We proceed even if ls-remote fails because it could be a private repo
+        # and the credentials in the URL allow bypassing authentication.
+        try:
+            clone_repository(ref.repository_url, ref.commit_hash, destination)
+        except errors.CloneError as e:
+            logger.error("failed to clone repository %s: %s", redacted, e)
+            raise

@@ -14,4 +14,4 @@ RUN mkdir -p /app/agent
 COPY agent /app/agent
 COPY ostorlab.yaml /app/agent/ostorlab.yaml
 WORKDIR /app/agent
-CMD ["python", "/app/agent/agent.py"]
+CMD ["python", "/app/agent/agent_inject_asset.py"]
