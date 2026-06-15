@@ -71,7 +71,7 @@ def clone_repository(repository_url: str, commit_hash: str, destination: str) ->
     Raises `CloneError` when the clone or the checkout fails.
     """
     redacted = redact_url(repository_url)
-    
+
     # We use -c core.hooksPath=/dev/null to disable any local hooks execution for security.
     # We use --depth 1 to perform a shallow clone for speed and efficiency.
     _run_git(
@@ -86,7 +86,7 @@ def clone_repository(repository_url: str, commit_hash: str, destination: str) ->
         ],
         error=f"failed to clone {redacted}",
     )
-    
+
     try:
         # Try checking out directly. This will work if commit_hash is the tip of the default branch.
         _run_git(
