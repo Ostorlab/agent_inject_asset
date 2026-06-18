@@ -13,5 +13,5 @@ COPY --from=builder /install /usr/local
 RUN mkdir -p /app/agent
 COPY agent /app/agent
 COPY ostorlab.yaml /app/agent/ostorlab.yaml
-WORKDIR /app/agent
-CMD ["python", "/app/agent/agent.py"]
+WORKDIR /app
+CMD ["python", "-m", "agent.agent_inject_asset"]
