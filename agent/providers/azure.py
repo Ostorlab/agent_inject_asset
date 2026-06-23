@@ -1,7 +1,6 @@
 """Azure repository provider."""
 
 import logging
-import urllib.parse
 
 from agent.providers import base
 from agent.providers import git
