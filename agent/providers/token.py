@@ -19,7 +19,7 @@ _GENERATE_GIT_PLATFORM_TOKEN_QUERY = """
 @tenacity.retry(
     stop=tenacity.stop_after_attempt(3),
     wait=tenacity.wait_exponential(multiplier=2, min=1, max=10),
-    retry=tenacity.retry_if_exception_type(requests.RequestException),
+    retry=tenacity.retry_if_exception_type((requests.RequestException, ValueError)),
     before_sleep=lambda retry_state: logger.warning(
         "Retrying platform token fetch, attempt %s", retry_state.attempt_number
     ),
@@ -60,7 +60,7 @@ def fetch_platform_token(api_url: str, api_key: str, git_provider: str) -> str |
 
     try:
         return _do_fetch_platform_token(api_url, api_key, git_provider)
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError) as e:
         logger.warning(
             "Failed to fetch platform token for %s after retries: %s", git_provider, e
         )

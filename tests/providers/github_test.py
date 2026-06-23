@@ -2,15 +2,15 @@
 
 from unittest.mock import patch
 
-from agent.providers.github import GitHubCloner
-from agent.providers.base import RepositoryCheckoutRequest
+from agent.providers import github as github_provider
+from agent.providers import base
 
 
-def testCloneWithoutToken_returnsOriginalUrl() -> None:
+def testGitHubCloner_whenCloneWithoutToken_shouldReturnOriginalUrl() -> None:
     """Clone without a token should use the original URL unchanged."""
-    provider = GitHubCloner()
+    provider = github_provider.GitHubCloner()
     repo_url = "https://github.com/org/repo"
-    ref = RepositoryCheckoutRequest(
+    ref = base.RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=None
     )
 
@@ -20,12 +20,12 @@ def testCloneWithoutToken_returnsOriginalUrl() -> None:
         mock_clone.assert_called_once_with(repo_url, "123", "/tmp/dest")
 
 
-def testCloneWithToken_injectsTokenPrefix() -> None:
+def testGitHubCloner_whenCloneWithToken_shouldInjectTokenPrefix() -> None:
     """Clone with a token should inject 'x-access-token:' prefix into the GitHub URL."""
-    provider = GitHubCloner()
+    provider = github_provider.GitHubCloner()
     repo_url = "https://github.com/org/repo"
     token = "secret-token-value"
-    ref = RepositoryCheckoutRequest(
+    ref = base.RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=token
     )
     expected_url = f"https://x-access-token:{token}@github.com/org/repo"

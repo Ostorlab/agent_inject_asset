@@ -2,15 +2,15 @@
 
 from unittest.mock import patch
 
-from agent.providers.gitlab import GitLabCloner
-from agent.providers.base import RepositoryCheckoutRequest
+from agent.providers import gitlab as gitlab_provider
+from agent.providers import base
 
 
-def testCloneWithoutToken_returnsOriginalUrl() -> None:
+def testGitLabCloner_whenCloneWithoutToken_shouldReturnOriginalUrl() -> None:
     """Clone without a token should use the original URL unchanged."""
-    provider = GitLabCloner()
+    provider = gitlab_provider.GitLabCloner()
     repo_url = "https://gitlab.com/org/repo"
-    ref = RepositoryCheckoutRequest(
+    ref = base.RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=None
     )
 
@@ -20,12 +20,12 @@ def testCloneWithoutToken_returnsOriginalUrl() -> None:
         mock_clone.assert_called_once_with(repo_url, "123", "/tmp/dest")
 
 
-def testCloneWithToken_injectsTokenPrefix() -> None:
+def testGitLabCloner_whenCloneWithToken_shouldInjectTokenPrefix() -> None:
     """Clone with a token should inject 'oauth2:' prefix into the GitLab URL."""
-    provider = GitLabCloner()
+    provider = gitlab_provider.GitLabCloner()
     repo_url = "https://gitlab.com/org/repo"
     token = "secret-token-value"
-    ref = RepositoryCheckoutRequest(
+    ref = base.RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=token
     )
     expected_url = f"https://oauth2:{token}@gitlab.com/org/repo"

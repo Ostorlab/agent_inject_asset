@@ -2,7 +2,6 @@
 
 import abc
 import dataclasses
-from typing import Optional
 
 
 @dataclasses.dataclass
@@ -18,7 +17,7 @@ class RepositoryCheckoutRequest:
 class RepositoryCloner(abc.ABC):
     """Contract for repository checkout providers."""
 
-    PROVIDER_NAME: Optional[str] = None
+    PROVIDER_NAME: str | None = None
 
     @abc.abstractmethod
     def clone(self, ref: RepositoryCheckoutRequest, destination: str) -> None:
