@@ -11,8 +11,8 @@ class RepositoryCheckoutRequest:
 
     repository_url: str
     commit_hash: str
-    provider: Optional[str] = None
-    token: Optional[str] = None
+    provider: str | None = None
+    token: str | None = None
 
 
 class RepositoryCloner(abc.ABC):
