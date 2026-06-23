@@ -15,4 +15,4 @@ ENV PYTHONPATH=/app
 COPY agent /app/agent
 COPY ostorlab.yaml /app/agent/ostorlab.yaml
 WORKDIR /app
-CMD ["python", "/app/agent/agent_inject_asset.py"]
+CMD ["python", "-m", "agent.agent_inject_asset"]

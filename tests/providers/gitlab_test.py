@@ -1,15 +1,15 @@
-"""Tests for the GitHub provider clone method."""
+"""Tests for the GitLab provider clone method."""
 
 from unittest.mock import patch
 
-from agent.providers.github import GitHubCloner
+from agent.providers.gitlab import GitLabCloner
 from agent.providers.base import RepositoryCheckoutRequest
 
 
 def testCloneWithoutToken_returnsOriginalUrl() -> None:
     """Clone without a token should use the original URL unchanged."""
-    provider = GitHubCloner()
-    repo_url = "https://github.com/org/repo"
+    provider = GitLabCloner()
+    repo_url = "https://gitlab.com/org/repo"
     ref = RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=None
     )
@@ -21,14 +21,14 @@ def testCloneWithoutToken_returnsOriginalUrl() -> None:
 
 
 def testCloneWithToken_injectsTokenPrefix() -> None:
-    """Clone with a token should inject 'x-access-token:' prefix into the GitHub URL."""
-    provider = GitHubCloner()
-    repo_url = "https://github.com/org/repo"
+    """Clone with a token should inject 'oauth2:' prefix into the GitLab URL."""
+    provider = GitLabCloner()
+    repo_url = "https://gitlab.com/org/repo"
     token = "secret-token-value"
     ref = RepositoryCheckoutRequest(
         repository_url=repo_url, commit_hash="123", token=token
     )
-    expected_url = f"https://x-access-token:{token}@github.com/org/repo"
+    expected_url = f"https://oauth2:{token}@gitlab.com/org/repo"
 
     with patch("agent.providers.git.clone_repository") as mock_clone:
         mock_clone.return_value = None

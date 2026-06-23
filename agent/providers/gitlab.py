@@ -17,11 +17,7 @@ class GitLabCloner(base.RepositoryCloner):
     def clone(self, ref: base.RepositoryCheckoutRequest, destination: str) -> None:
         url = ref.repository_url
         if ref.token is not None:
-            parsed = urllib.parse.urlparse(url)
-            netloc = f"oauth2:{ref.token}@{parsed.hostname}"
-            if parsed.port is not None:
-                netloc += f":{parsed.port}"
-            url = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+            url = git.inject_token_into_url(url, ref.token, "oauth2")
 
         redacted = git.redact_url(url)
         logger.info("cloning GitLab repository %s", redacted)

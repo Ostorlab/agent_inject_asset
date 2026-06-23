@@ -44,6 +44,15 @@ def redact_url(url: str) -> str:
     return urllib.parse.urlunparse(parsed)
 
 
+def inject_token_into_url(url: str, token: str, username: str) -> str:
+    """Inject a token into a repository URL."""
+    parsed = urllib.parse.urlparse(url)
+    netloc = f"{username}:{token}@{parsed.hostname}"
+    if parsed.port is not None:
+        netloc += f":{parsed.port}"
+    return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+
+
 def is_public_repository(repository_url: str) -> bool:
     """Return whether `repository_url` is reachable without authentication.
 
@@ -102,20 +111,39 @@ def clone_repository(repository_url: str, commit_hash: str, destination: str) ->
         )
     except errors.CloneError:
         # If the commit is not at the tip, shallow fetch the specific commit.
-        _run_git(
-            [
-                "-c",
-                "core.hooksPath=/dev/null",
-                "-C",
-                destination,
-                "fetch",
-                "--depth",
-                "1",
-                "origin",
+        try:
+            _run_git(
+                [
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-C",
+                    destination,
+                    "fetch",
+                    "--depth",
+                    "1",
+                    "origin",
+                    commit_hash,
+                ],
+                error=f"failed to fetch specific commit {commit_hash} from {redacted}",
+            )
+        except errors.CloneError:
+            logger.warning(
+                "Shallow fetch of commit %s from %s failed; falling back to full fetch",
                 commit_hash,
-            ],
-            error=f"failed to fetch specific commit {commit_hash} from {redacted}",
-        )
+                redacted,
+            )
+            _run_git(
+                [
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-C",
+                    destination,
+                    "fetch",
+                    "origin",
+                    commit_hash,
+                ],
+                error=f"failed to fetch specific commit {commit_hash} from {redacted}",
+            )
         _run_git(
             [
                 "-c",
