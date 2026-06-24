@@ -47,7 +47,9 @@ def redact_url(url: str) -> str:
 def inject_token_into_url(url: str, token: str, username: str) -> str:
     """Inject a token into a repository URL."""
     parsed = urllib.parse.urlparse(url)
-    netloc = f"{username}:{token}@{parsed.hostname}"
+    encoded_username = urllib.parse.quote(username, safe="")
+    encoded_token = urllib.parse.quote(token, safe="")
+    netloc = f"{encoded_username}:{encoded_token}@{parsed.hostname}"
     if parsed.port is not None:
         netloc += f":{parsed.port}"
     return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
