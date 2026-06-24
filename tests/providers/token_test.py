@@ -7,7 +7,7 @@ import requests
 from agent.providers import token
 
 
-def testFetchPlatformToken_whenApiSucceeds_returnsToken():
+def testFetchPlatformToken_whenApiSucceeds_returnsToken() -> None:
     """Test fetching a token successfully."""
     api_url = "https://api.ostorlab.co/apis/robot_graphql"
     api_key = "dummy_key"
@@ -29,7 +29,7 @@ def testFetchPlatformToken_whenApiSucceeds_returnsToken():
         assert kwargs["json"]["variables"]["gitProvider"] == "GITHUB"
 
 
-def testFetchPlatformToken_whenApiFails_returnsNone():
+def testFetchPlatformToken_whenApiFails_returnsNone() -> None:
     """Test fetching a token when the API returns an error."""
     api_url = "https://api.ostorlab.co/apis/robot_graphql"
     api_key = "dummy_key"
@@ -44,7 +44,7 @@ def testFetchPlatformToken_whenApiFails_returnsNone():
         assert fetched_token is None
 
 
-def testFetchPlatformToken_whenGraphqlErrors_returnsNone():
+def testFetchPlatformToken_whenGraphqlErrors_returnsNone() -> None:
     """Test fetching a token when GraphQL returns errors."""
     api_url = "https://api.ostorlab.co/apis/robot_graphql"
     api_key = "dummy_key"

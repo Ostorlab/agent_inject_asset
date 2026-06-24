@@ -50,7 +50,12 @@ def _do_fetch_platform_token(
         )
         return None
 
-    return data.get("data", {}).get("generateGitPlatformToken", {}).get("token")
+    response_data = data.get("data")
+    if response_data is None:
+        logger.warning("GraphQL response for %s has null data", git_provider)
+        return None
+
+    return response_data.get("generateGitPlatformToken", {}).get("token")
 
 
 def fetch_platform_token(api_url: str, api_key: str, git_provider: str) -> str | None:

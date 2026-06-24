@@ -95,11 +95,12 @@ class AgentInjectAsset(agent.Agent):
     ) -> None:
         """Injects authentication token into ref if the repository is private."""
         if git.is_public_repository(ref.repository_url) is False:
+            has_embedded_credentials = (
+                urllib.parse.urlparse(ref.repository_url).username is not None
+            )
+
             # Attempt to fetch a platform token if not embedded and API keys are available
-            if (
-                cloner.PROVIDER_NAME is not None
-                and urllib.parse.urlparse(ref.repository_url).username is None
-            ):
+            if cloner.PROVIDER_NAME is not None and has_embedded_credentials is False:
                 api_url = self.args.get("api_reporting_engine_base_url")
                 api_key = self.args.get("reporting_engine_api_key")
 
@@ -110,10 +111,7 @@ class AgentInjectAsset(agent.Agent):
                     if fetched_token is not None:
                         ref.token = fetched_token
 
-            if (
-                ref.token is None
-                and urllib.parse.urlparse(ref.repository_url).username is None
-            ):
+            if ref.token is None and has_embedded_credentials is False:
                 raise provider_errors.MissingCredentialsError(
                     f"Credentials are required for private repository {git.redact_url(ref.repository_url)}"
                 )

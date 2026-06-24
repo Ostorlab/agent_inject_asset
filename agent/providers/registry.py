@@ -6,13 +6,13 @@ unaware of how they are selected.
 
 import urllib.parse
 
+from agent.providers import azure
 from agent.providers import base
 from agent.providers import bitbucket
 from agent.providers import errors
 from agent.providers import git
 from agent.providers import github
 from agent.providers import gitlab
-from agent.providers import azure
 
 _PROVIDERS_BY_HOST: dict[str, type[base.RepositoryCloner]] = {
     "github.com": github.GitHubCloner,
