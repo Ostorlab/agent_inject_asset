@@ -1,6 +1,7 @@
 """Unittests for inject asset agent."""
 
 import pathlib
+import unittest.mock
 
 import pytest
 import pyfakefs.fake_filesystem
@@ -11,6 +12,7 @@ from ostorlab.runtimes import definitions as runtime_definitions
 
 from agent import agent_inject_asset as agent_module
 from agent.providers import git
+from agent.providers import token
 
 _REAL_MESSAGE_CODE_PATH = pathlib.Path(serializer.__file__).resolve().parent / "proto"
 _FAKE_MESSAGE_CODE_PATH = "/tmp/ostorlab/agent/message/proto"
@@ -148,6 +150,27 @@ def testInjectAssetAgent_whenRepositoryAssetIsPrivateAndCannotBeCloned_repositor
     fs.add_real_directory("/opt/")
     _add_real_ostorlab_message_protos(fs, monkeypatch)
     monkeypatch.setattr(git, "is_public_repository", lambda repository_url: False)
+
+    original_from_raw = message.Message.from_raw
+
+    def mock_from_raw(selector, raw):
+        if selector == "v3.asset.repository":
+
+            class MockMessage:
+                def __init__(self):
+                    self.data = {
+                        "repository_url": "https://github.com/owner/repo",
+                        "commit_hash": "abc123",
+                        "provider": "GITHUB",
+                    }
+                    self.selector = selector
+                    self.raw = raw
+
+            return MockMessage()
+        return original_from_raw(selector, raw)
+
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+
     fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
     fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
     definition = agent_definitions.AgentDefinition(
@@ -181,6 +204,27 @@ def testInjectAssetAgent_whenRepositoryAssetIsPublic_repositoryAssetIsInjected(
             (repository_url, commit_hash, destination)
         ),
     )
+
+    original_from_raw = message.Message.from_raw
+
+    def mock_from_raw(selector, raw):
+        if selector == "v3.asset.repository":
+
+            class MockMessage:
+                def __init__(self):
+                    self.data = {
+                        "repository_url": "https://github.com/owner/repo",
+                        "commit_hash": "abc123",
+                        "provider": "GITHUB",
+                    }
+                    self.selector = selector
+                    self.raw = raw
+
+            return MockMessage()
+        return original_from_raw(selector, raw)
+
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+
     fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
     fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
     definition = agent_definitions.AgentDefinition(
@@ -197,3 +241,174 @@ def testInjectAssetAgent_whenRepositoryAssetIsPublic_repositoryAssetIsInjected(
     assert agent_mock[0].selector == "v3.asset.repository"
     assert agent_mock[0].raw == REPOSITORY_MESSAGE_RAW
     assert clone_calls == [("https://github.com/owner/repo", "abc123", "/code")]
+
+
+def testInjectAssetAgent_whenRepositoryAssetIsPrivate_fetchesTokenAndClones(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensures a private repository asset fetches token and clones."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+    clone_calls: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(git, "is_public_repository", lambda repository_url: False)
+    monkeypatch.setattr(
+        git,
+        "clone_repository",
+        lambda repository_url, commit_hash, destination: clone_calls.append(
+            (repository_url, commit_hash, destination)
+        ),
+    )
+
+    # Mock token fetch
+    monkeypatch.setattr(
+        token, "fetch_platform_token", lambda *args, **kwargs: "ghp_mock_token"
+    )
+
+    original_from_raw = message.Message.from_raw
+
+    def mock_from_raw(selector, raw):
+        if selector == "v3.asset.repository":
+
+            class MockMessage:
+                def __init__(self):
+                    self.data = {
+                        "repository_url": "https://github.com/owner/repo",
+                        "commit_hash": "abc123",
+                        "provider": "GITHUB",
+                    }
+                    self.selector = selector
+                    self.raw = raw
+
+            return MockMessage()
+        return original_from_raw(selector, raw)
+
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+
+    fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
+    fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.repository"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset",
+        args=[
+            {
+                "name": "api_reporting_engine_base_url",
+                "value": b"https://api.ostorlab.co",
+                "type": "string",
+            },
+            {
+                "name": "reporting_engine_api_key",
+                "value": b"mock_key",
+                "type": "string",
+            },
+        ],
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    with unittest.mock.patch(
+        "agent.agent_inject_asset.AgentInjectAsset.args",
+        new_callable=unittest.mock.PropertyMock,
+    ) as mock_args:
+        mock_args.return_value = {
+            "api_reporting_engine_base_url": "https://api.ostorlab.co",
+            "reporting_engine_api_key": "mock_key",
+        }
+        test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert clone_calls == [
+        (
+            "https://x-access-token:ghp_mock_token@github.com/owner/repo",
+            "abc123",
+            "/code",
+        )
+    ]
+
+
+def testInjectAssetAgent_whenRepositoryAssetIsPrivateWithEmbeddedCreds_skipsTokenFetchAndClones(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensures a private repository with embedded credentials skips token fetching."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+    clone_calls: list[tuple[str, str, str]] = []
+
+    # is_public_repository will return True if the embedded credentials work!
+    monkeypatch.setattr(git, "is_public_repository", lambda repository_url: True)
+    monkeypatch.setattr(
+        git,
+        "clone_repository",
+        lambda repository_url, commit_hash, destination: clone_calls.append(
+            (repository_url, commit_hash, destination)
+        ),
+    )
+
+    # Mock token fetch to fail the test if it's called
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("fetch_platform_token should not be called")
+
+    monkeypatch.setattr(token, "fetch_platform_token", fail_if_called)
+
+    original_from_raw = message.Message.from_raw
+
+    def mock_from_raw(selector, raw):
+        if selector == "v3.asset.repository":
+
+            class MockMessage:
+                def __init__(self):
+                    self.data = {
+                        "repository_url": "https://user:pass@github.com/owner/repo",
+                        "commit_hash": "abc123",
+                        "provider": "GITHUB",
+                    }
+                    self.selector = selector
+                    self.raw = raw
+
+            return MockMessage()
+        return original_from_raw(selector, raw)
+
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+
+    fs.create_file(file_path="/asset/asset.binproto_1", contents=REPOSITORY_MESSAGE_RAW)
+    fs.create_file(file_path="/asset/selector.txt_1", contents="v3.asset.repository")
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.repository"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset",
+        args=[
+            {
+                "name": "api_reporting_engine_base_url",
+                "value": b"https://api.ostorlab.co",
+                "type": "string",
+            },
+            {
+                "name": "reporting_engine_api_key",
+                "value": b"mock_key",
+                "type": "string",
+            },
+        ],
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    with unittest.mock.patch(
+        "agent.agent_inject_asset.AgentInjectAsset.args",
+        new_callable=unittest.mock.PropertyMock,
+    ) as mock_args:
+        mock_args.return_value = {
+            "api_reporting_engine_base_url": "https://api.ostorlab.co",
+            "reporting_engine_api_key": "mock_key",
+        }
+        test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert clone_calls == [
+        ("https://user:pass@github.com/owner/repo", "abc123", "/code")
+    ]
