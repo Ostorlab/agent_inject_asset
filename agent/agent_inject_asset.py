@@ -19,7 +19,16 @@ ASSET_DIR = "/asset/"
 RAW_PATTERN = "asset.binproto_"
 SELECTOR_PATTERN = "/asset/selector.txt_"
 REPOSITORY_SELECTOR = "v3.asset.repository"
+RISK_SELECTOR = "v3.report.risk"
 SHARED_VOLUME_DIR = "/code"
+
+# Risk targets that other agents in the same universe may still expect as a plain file asset,
+# mapped to that asset's own selector.
+_RISK_TARGET_TO_PLAIN_SELECTOR = {
+    "ios_ipa": "v3.asset.file.ios.ipa",
+    "android_apk": "v3.asset.file.android.apk",
+    "android_aab": "v3.asset.file.android.aab",
+}
 
 # Before Ostorlab version 0.3.1 (including).
 ASSET_RAW_PATH = "/tmp/asset.binproto"
@@ -86,9 +95,29 @@ class AgentInjectAsset(agent.Agent):
             except provider_errors.CloneError as e:
                 logger.error("skipping repository asset: %s", e)
                 return
+        elif selector == RISK_SELECTOR:
+            self._emit_plain_asset_from_risk(asset)
 
         logger.info("injecting asset of size %d to selector %s", len(asset), selector)
         self.emit_raw(selector=selector, raw=asset)
+
+    def _emit_plain_asset_from_risk(self, asset: bytes) -> None:
+        """Also emit the risk's embedded file asset under its own plain selector.
+
+        Some universes run agents that consume a risk asset (e.g. auto_exploit) alongside
+        agents that still expect the plain file asset the risk was built from (e.g. file_info).
+        This derives that plain asset from the risk's embedded target and emits it too, without
+        the risk's description/rating, so both kinds of agents get what they need.
+        """
+        risk_message = agent_message.Message.from_raw(RISK_SELECTOR, asset)
+        for target_name, plain_selector in _RISK_TARGET_TO_PLAIN_SELECTOR.items():
+            target_data = risk_message.data.get(target_name)
+            if target_data is not None:
+                plain_message = agent_message.Message.from_data(
+                    plain_selector, target_data
+                )
+                self.emit_raw(selector=plain_message.selector, raw=plain_message.raw)
+                return
 
     def _authenticate_if_needed(
         self, ref: base.RepositoryCheckoutRequest, cloner: base.RepositoryCloner

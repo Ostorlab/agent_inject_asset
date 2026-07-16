@@ -27,6 +27,30 @@ REPOSITORY_MESSAGE_RAW = message.Message.from_data(
         "commit_hash": "abc123",
     },
 ).raw
+IOS_IPA_RISK_MESSAGE_RAW = message.Message.from_data(
+    selector="v3.report.risk",
+    data={
+        "description": "test risk description",
+        "rating": "HIGH",
+        "ios_ipa": {"content_url": "https://example.com/app.ipa"},
+    },
+).raw
+ANDROID_APK_RISK_MESSAGE_RAW = message.Message.from_data(
+    selector="v3.report.risk",
+    data={
+        "description": "test risk description",
+        "rating": "HIGH",
+        "android_apk": {"content_url": "https://example.com/app.apk"},
+    },
+).raw
+LINK_RISK_MESSAGE_RAW = message.Message.from_data(
+    selector="v3.report.risk",
+    data={
+        "description": "test risk description",
+        "rating": "HIGH",
+        "link": {"url": "https://example.com"},
+    },
+).raw
 
 
 def _add_real_ostorlab_message_protos(
@@ -412,3 +436,97 @@ def testInjectAssetAgent_whenRepositoryAssetIsPrivateWithEmbeddedCreds_skipsToke
     assert clone_calls == [
         ("https://user:pass@github.com/owner/repo", "abc123", "/code")
     ]
+
+
+def testInjectAssetAgent_whenRiskHasIosIpaTarget_alsoEmitsPlainIpaAsset(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A risk asset with an embedded ios_ipa target also emits a plain ipa asset."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=IOS_IPA_RISK_MESSAGE_RAW
+    )
+    fs.create_file(file_path="/asset/selector.txt_1", contents="v3.report.risk")
+
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent",
+        out_selectors=["v3.report.risk", "v3.asset.file.ios.ipa"],
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+    test_agent.start()
+
+    assert len(agent_mock) == 2
+    assert agent_mock[0].selector == "v3.asset.file.ios.ipa"
+    assert agent_mock[0].data == {"content_url": "https://example.com/app.ipa"}
+    assert agent_mock[1].selector == "v3.report.risk"
+    assert agent_mock[1].raw == IOS_IPA_RISK_MESSAGE_RAW
+
+
+def testInjectAssetAgent_whenRiskHasAndroidApkTarget_alsoEmitsPlainApkAsset(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A risk asset with an embedded android_apk target also emits a plain apk asset."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=ANDROID_APK_RISK_MESSAGE_RAW
+    )
+    fs.create_file(file_path="/asset/selector.txt_1", contents="v3.report.risk")
+
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent",
+        out_selectors=["v3.report.risk", "v3.asset.file.android.apk"],
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+    test_agent.start()
+
+    assert len(agent_mock) == 2
+    assert agent_mock[0].selector == "v3.asset.file.android.apk"
+    assert agent_mock[0].data == {"content_url": "https://example.com/app.apk"}
+    assert agent_mock[1].selector == "v3.report.risk"
+    assert agent_mock[1].raw == ANDROID_APK_RISK_MESSAGE_RAW
+
+
+def testInjectAssetAgent_whenRiskHasNoKnownFileTarget_onlyEmitsRisk(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A risk asset targeting something other than a known file type emits only the risk."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+
+    fs.create_file(file_path="/asset/asset.binproto_1", contents=LINK_RISK_MESSAGE_RAW)
+    fs.create_file(file_path="/asset/selector.txt_1", contents="v3.report.risk")
+
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.report.risk"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+    test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert agent_mock[0].selector == "v3.report.risk"
+    assert agent_mock[0].raw == LINK_RISK_MESSAGE_RAW
