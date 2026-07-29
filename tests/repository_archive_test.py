@@ -632,3 +632,45 @@ def testDownloadArchive_when7zCorrupted_raisesArchiveDownloadError(
         repository_archive.download_archive(
             "https://storage.example.com/repo.7z", str(tmp_path)
         )
+
+
+def testDownloadArchive_when7zHasEscapingSymlink_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
+) -> None:
+    """A 7z archive containing a symlink pointing outside the destination is rejected."""
+    staging = tmp_path / "staging"
+    (staging / "src").mkdir(parents=True)
+    (staging / "src" / "main.py").write_text("print('hi')")
+    (staging / "src" / "evil").symlink_to("/etc")
+
+    sz_bytes = io.BytesIO()
+    with py7zr.SevenZipFile(sz_bytes, "w") as sz_file:
+        sz_file.writeall(str(staging / "src"), "src")
+    mock_archive_response(sz_bytes.getvalue(), 200)
+
+    destination = tmp_path / "code"
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive.download_archive(
+            "https://storage.example.com/repo.7z", str(destination)
+        )
+
+    assert not (destination / "src" / "evil").exists()
+
+
+def testDownloadArchive_whenDestinationAlreadyPopulated_mergesEntries(
+    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
+) -> None:
+    """Re-extracting into a non-empty destination merges entries instead of crashing."""
+    destination = tmp_path / "code"
+    destination.mkdir(parents=True)
+    (destination / "existing.py").write_text("keep")
+
+    zip_bytes = _build_zip({"new.py": "print('new')"})
+    mock_archive_response(zip_bytes, 200)
+
+    repository_archive.download_archive(
+        "https://storage.example.com/repo.zip", str(destination)
+    )
+
+    assert (destination / "existing.py").read_text() == "keep"
+    assert (destination / "new.py").read_text() == "print('new')"

@@ -2,6 +2,7 @@
 
 import pathlib
 import unittest.mock
+from collections.abc import Callable
 
 import pytest
 import pyfakefs.fake_filesystem
@@ -30,7 +31,6 @@ REPOSITORY_MESSAGE_RAW = message.Message.from_data(
     },
 ).raw
 REPOSITORY_ARCHIVE_MESSAGE_RAW = b"FAKE_REPOSITORY_ARCHIVE_RAW"
-REPOSITORY_ARCHIVE_SELECTOR = "v3.asset.file.repository_archive"
 
 
 def _add_real_ostorlab_message_protos(
@@ -418,35 +418,11 @@ def testInjectAssetAgent_whenRepositoryAssetIsPrivateWithEmbeddedCreds_skipsToke
     ]
 
 
-def _mock_repository_archive_message(
-    monkeypatch: pytest.MonkeyPatch, data: dict
-) -> None:
-    """Make `message.Message.from_raw` return `data` for the repository archive selector.
-
-    The real `v3.asset.file.repository_archive` proto is not yet published in the
-    `ostorlab` package, so the repository archive path has no real-parsing fallback.
-    """
-    original_from_raw = message.Message.from_raw
-
-    def mock_from_raw(selector, raw):
-        if selector == REPOSITORY_ARCHIVE_SELECTOR:
-
-            class MockMessage:
-                def __init__(self):
-                    self.data = data
-                    self.selector = selector
-                    self.raw = raw
-
-            return MockMessage()
-        return original_from_raw(selector, raw)
-
-    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
-
-
 def testInjectAssetAgent_whenRepositoryArchiveAssetHasContentUrl_downloadsAndIsInjected(
     agent_mock: list[message.Message],
     fs: pyfakefs.fake_filesystem.FakeFilesystem,
     monkeypatch: pytest.MonkeyPatch,
+    mock_repository_archive_message: Callable[[dict], None],
 ) -> None:
     """Ensures a repository archive asset with a content_url is downloaded and then emitted."""
     fs.add_real_directory("/home/")
@@ -461,8 +437,8 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetHasContentUrl_downloadsAndIsI
         ),
     )
 
-    _mock_repository_archive_message(
-        monkeypatch, {"content_url": "https://storage.example.com/uploads/repo.zip"}
+    mock_repository_archive_message(
+        {"content_url": "https://storage.example.com/uploads/repo.zip"}
     )
 
     fs.create_file(
@@ -491,6 +467,7 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetHasEmbeddedContent_extractsAn
     agent_mock: list[message.Message],
     fs: pyfakefs.fake_filesystem.FakeFilesystem,
     monkeypatch: pytest.MonkeyPatch,
+    mock_repository_archive_message: Callable[[dict], None],
 ) -> None:
     """Ensures a repository archive asset with embedded content bytes is extracted and then emitted."""
     fs.add_real_directory("/home/")
@@ -510,7 +487,7 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetHasEmbeddedContent_extractsAn
         lambda content, destination: extract_calls.append((content, destination)),
     )
 
-    _mock_repository_archive_message(monkeypatch, {"content": b"FAKE_ZIP_BYTES"})
+    mock_repository_archive_message({"content": b"FAKE_ZIP_BYTES"})
 
     fs.create_file(
         file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
@@ -537,6 +514,7 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetHasBothContentAndUrl_prefersC
     agent_mock: list[message.Message],
     fs: pyfakefs.fake_filesystem.FakeFilesystem,
     monkeypatch: pytest.MonkeyPatch,
+    mock_repository_archive_message: Callable[[dict], None],
 ) -> None:
     """When both are set, content_url is downloaded and the embedded content is left unused."""
     fs.add_real_directory("/home/")
@@ -558,12 +536,11 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetHasBothContentAndUrl_prefersC
         ),
     )
 
-    _mock_repository_archive_message(
-        monkeypatch,
+    mock_repository_archive_message(
         {
             "content_url": "https://storage.example.com/uploads/repo.zip",
             "content": b"FAKE_ZIP_BYTES",
-        },
+        }
     )
 
     fs.create_file(
@@ -590,6 +567,7 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetMissingContentAndUrl_reposito
     agent_mock: list[message.Message],
     fs: pyfakefs.fake_filesystem.FakeFilesystem,
     monkeypatch: pytest.MonkeyPatch,
+    mock_repository_archive_message: Callable[[dict], None],
 ) -> None:
     """A repository archive asset with neither content nor content_url is rejected before any I/O."""
     fs.add_real_directory("/home/")
@@ -604,7 +582,7 @@ def testInjectAssetAgent_whenRepositoryArchiveAssetMissingContentAndUrl_reposito
     monkeypatch.setattr(repository_archive, "download_archive", fail_if_called)
     monkeypatch.setattr(repository_archive, "extract_content", fail_if_called)
 
-    _mock_repository_archive_message(monkeypatch, {})
+    mock_repository_archive_message({})
 
     fs.create_file(
         file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
@@ -629,6 +607,7 @@ def testInjectAssetAgent_whenRepositoryArchiveDownloadFails_repositoryArchiveAss
     agent_mock: list[message.Message],
     fs: pyfakefs.fake_filesystem.FakeFilesystem,
     monkeypatch: pytest.MonkeyPatch,
+    mock_repository_archive_message: Callable[[dict], None],
 ) -> None:
     """A repository archive asset is skipped, not raised, when the download fails."""
     fs.add_real_directory("/home/")
@@ -640,8 +619,8 @@ def testInjectAssetAgent_whenRepositoryArchiveDownloadFails_repositoryArchiveAss
 
     monkeypatch.setattr(repository_archive, "download_archive", raise_download_error)
 
-    _mock_repository_archive_message(
-        monkeypatch, {"content_url": "https://storage.example.com/uploads/repo.zip"}
+    mock_repository_archive_message(
+        {"content_url": "https://storage.example.com/uploads/repo.zip"}
     )
 
     fs.create_file(

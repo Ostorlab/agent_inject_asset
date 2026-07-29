@@ -4,6 +4,7 @@ import collections.abc
 import datetime
 import logging
 import pathlib
+import shutil
 import struct
 import tarfile
 import tempfile
@@ -77,6 +78,24 @@ def _check_member_count(members: collections.abc.Sized) -> None:
         raise errors.ArchiveDownloadError(
             f"Archive member count {count} exceeds {_MAX_MEMBERS} limit"
         )
+
+
+def _check_no_escaping_symlinks(root: pathlib.Path) -> None:
+    """Reject any symlink under `root` whose target resolves outside `root`.
+
+    `py7zr` does not validate symlink targets the way tarfile's `filter="data"`
+    does, so this guard is what makes a 7z archive with an escaping symlink fail
+    closed instead of letting later writes follow it out of the destination.
+    """
+    root_resolved = root.resolve()
+    for entry in root.rglob("*"):
+        if entry.is_symlink() is False:
+            continue
+        if entry.resolve().is_relative_to(root_resolved) is False:
+            raise errors.ArchiveDownloadError(
+                f"7z archive contains a symlink {entry!r} pointing outside "
+                f"the destination"
+            )
 
 
 def _collect_tar_members(tar_file: tarfile.TarFile) -> list[tarfile.TarInfo]:
@@ -174,13 +193,19 @@ def _extract(archive_path: pathlib.Path, destination: pathlib.Path) -> None:
                 raise errors.ArchiveDownloadError(
                     "7z archive is password protected."
                 ) from exp
+
+            # py7zr does not validate symlink targets the way tarfile's
+            # `filter="data"` does, so a malicious archive could embed a symlink
+            # pointing outside the staging directory. Walk the extracted tree and
+            # reject any such symlink before anything is moved into place.
+            _check_no_escaping_symlinks(staging_dir)
         else:
             raise errors.ArchiveDownloadError(
                 f"Unsupported repository archive format at {archive_path}"
             )
 
-        for entry in staging_dir.iterdir():
-            entry.rename(destination / entry.name)
+        shutil.copytree(staging_dir, destination, dirs_exist_ok=True)
+        shutil.rmtree(staging_dir)
 
 
 def download_archive(content_url: str, destination: str) -> None:
