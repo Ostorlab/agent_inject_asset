@@ -11,6 +11,8 @@ from ostorlab.agent.message import serializer
 from ostorlab.runtimes import definitions as runtime_definitions
 
 from agent import agent_inject_asset as agent_module
+from agent import repository_archive
+from agent.providers import errors
 from agent.providers import git
 from agent.providers import token
 
@@ -27,6 +29,8 @@ REPOSITORY_MESSAGE_RAW = message.Message.from_data(
         "commit_hash": "abc123",
     },
 ).raw
+REPOSITORY_ARCHIVE_MESSAGE_RAW = b"FAKE_REPOSITORY_ARCHIVE_RAW"
+REPOSITORY_ARCHIVE_SELECTOR = "v3.asset.file.repository_archive"
 
 
 def _add_real_ostorlab_message_protos(
@@ -412,3 +416,248 @@ def testInjectAssetAgent_whenRepositoryAssetIsPrivateWithEmbeddedCreds_skipsToke
     assert clone_calls == [
         ("https://user:pass@github.com/owner/repo", "abc123", "/code")
     ]
+
+
+def _mock_repository_archive_message(
+    monkeypatch: pytest.MonkeyPatch, data: dict
+) -> None:
+    """Make `message.Message.from_raw` return `data` for the repository archive selector.
+
+    The real `v3.asset.file.repository_archive` proto is not yet published in the
+    `ostorlab` package, so the repository archive path has no real-parsing fallback.
+    """
+    original_from_raw = message.Message.from_raw
+
+    def mock_from_raw(selector, raw):
+        if selector == REPOSITORY_ARCHIVE_SELECTOR:
+
+            class MockMessage:
+                def __init__(self):
+                    self.data = data
+                    self.selector = selector
+                    self.raw = raw
+
+            return MockMessage()
+        return original_from_raw(selector, raw)
+
+    monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+
+
+def testInjectAssetAgent_whenRepositoryArchiveAssetHasContentUrl_downloadsAndIsInjected(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensures a repository archive asset with a content_url is downloaded and then emitted."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+    download_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        repository_archive,
+        "download_archive",
+        lambda content_url, destination: download_calls.append(
+            (content_url, destination)
+        ),
+    )
+
+    _mock_repository_archive_message(
+        monkeypatch, {"content_url": "https://storage.example.com/uploads/repo.zip"}
+    )
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
+    )
+    fs.create_file(
+        file_path="/asset/selector.txt_1", contents="v3.asset.file.repository_archive"
+    )
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.file.repository_archive"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert agent_mock[0].selector == "v3.asset.file.repository_archive"
+    assert agent_mock[0].raw == REPOSITORY_ARCHIVE_MESSAGE_RAW
+    assert download_calls == [("https://storage.example.com/uploads/repo.zip", "/code")]
+
+
+def testInjectAssetAgent_whenRepositoryArchiveAssetHasEmbeddedContent_extractsAndIsInjected(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensures a repository archive asset with embedded content bytes is extracted and then emitted."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+    extract_calls: list[tuple[bytes, str]] = []
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError(
+            "download_archive should not be reached when content is embedded"
+        )
+
+    monkeypatch.setattr(repository_archive, "download_archive", fail_if_called)
+    monkeypatch.setattr(
+        repository_archive,
+        "extract_content",
+        lambda content, destination: extract_calls.append((content, destination)),
+    )
+
+    _mock_repository_archive_message(monkeypatch, {"content": b"FAKE_ZIP_BYTES"})
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
+    )
+    fs.create_file(
+        file_path="/asset/selector.txt_1", contents="v3.asset.file.repository_archive"
+    )
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.file.repository_archive"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert agent_mock[0].selector == "v3.asset.file.repository_archive"
+    assert extract_calls == [(b"FAKE_ZIP_BYTES", "/code")]
+
+
+def testInjectAssetAgent_whenRepositoryArchiveAssetHasBothContentAndUrl_prefersContentUrl(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When both are set, content_url is downloaded and the embedded content is left unused."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+    download_calls: list[tuple[str, str]] = []
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError(
+            "extract_content should not be reached when content_url is present"
+        )
+
+    monkeypatch.setattr(repository_archive, "extract_content", fail_if_called)
+    monkeypatch.setattr(
+        repository_archive,
+        "download_archive",
+        lambda content_url, destination: download_calls.append(
+            (content_url, destination)
+        ),
+    )
+
+    _mock_repository_archive_message(
+        monkeypatch,
+        {
+            "content_url": "https://storage.example.com/uploads/repo.zip",
+            "content": b"FAKE_ZIP_BYTES",
+        },
+    )
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
+    )
+    fs.create_file(
+        file_path="/asset/selector.txt_1", contents="v3.asset.file.repository_archive"
+    )
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.file.repository_archive"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    test_agent.start()
+
+    assert len(agent_mock) == 1
+    assert download_calls == [("https://storage.example.com/uploads/repo.zip", "/code")]
+
+
+def testInjectAssetAgent_whenRepositoryArchiveAssetMissingContentAndUrl_repositoryArchiveAssetIsSkipped(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repository archive asset with neither content nor content_url is rejected before any I/O."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError(
+            "archive helpers should not be reached when content and content_url are both missing"
+        )
+
+    monkeypatch.setattr(repository_archive, "download_archive", fail_if_called)
+    monkeypatch.setattr(repository_archive, "extract_content", fail_if_called)
+
+    _mock_repository_archive_message(monkeypatch, {})
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
+    )
+    fs.create_file(
+        file_path="/asset/selector.txt_1", contents="v3.asset.file.repository_archive"
+    )
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.file.repository_archive"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    test_agent.start()
+
+    assert len(agent_mock) == 0
+
+
+def testInjectAssetAgent_whenRepositoryArchiveDownloadFails_repositoryArchiveAssetIsSkipped(
+    agent_mock: list[message.Message],
+    fs: pyfakefs.fake_filesystem.FakeFilesystem,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repository archive asset is skipped, not raised, when the download fails."""
+    fs.add_real_directory("/home/")
+    fs.add_real_directory("/opt/")
+    _add_real_ostorlab_message_protos(fs, monkeypatch)
+
+    def raise_download_error(content_url: str, destination: str) -> None:
+        raise errors.ArchiveDownloadError("boom")
+
+    monkeypatch.setattr(repository_archive, "download_archive", raise_download_error)
+
+    _mock_repository_archive_message(
+        monkeypatch, {"content_url": "https://storage.example.com/uploads/repo.zip"}
+    )
+
+    fs.create_file(
+        file_path="/asset/asset.binproto_1", contents=REPOSITORY_ARCHIVE_MESSAGE_RAW
+    )
+    fs.create_file(
+        file_path="/asset/selector.txt_1", contents="v3.asset.file.repository_archive"
+    )
+    definition = agent_definitions.AgentDefinition(
+        name="start_test_agent", out_selectors=["v3.asset.file.repository_archive"]
+    )
+    settings = runtime_definitions.AgentSettings(
+        key="agent/ostorlab/agent_inject_asset"
+    )
+    test_agent = agent_module.AgentInjectAsset(definition, settings)
+
+    test_agent.start()
+
+    assert len(agent_mock) == 0

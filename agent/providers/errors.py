@@ -15,3 +15,7 @@ class MissingCredentialsError(CloneError):
 
 class UnsupportedProviderError(CloneError):
     """Raised when no provider matches a repository URL."""
+
+
+class ArchiveDownloadError(Exception):
+    """Raised when a repository archive cannot be downloaded onto the shared volume."""
