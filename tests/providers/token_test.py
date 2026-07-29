@@ -25,6 +25,7 @@ def testFetchPlatformToken_whenApiSucceeds_returnsToken() -> None:
         assert fetched_token == "ghp_12345"
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
+        assert args == (api_url,)
         assert kwargs["headers"]["X-API-KEY"] == "dummy_key"
         assert kwargs["json"]["variables"]["gitProvider"] == "GITHUB"
 
