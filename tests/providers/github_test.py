@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from agent.providers import github as github_provider
 from agent.providers import base
+from agent.providers import github as github_provider
 
 
 def testGitHubCloner_whenCloneWithoutToken_shouldReturnOriginalUrl() -> None:

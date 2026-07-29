@@ -4,18 +4,15 @@ import pathlib
 import unittest.mock
 from collections.abc import Callable
 
-import pytest
 import pyfakefs.fake_filesystem
+import pytest
 from ostorlab.agent import definitions as agent_definitions
-from ostorlab.agent.message import message
-from ostorlab.agent.message import serializer
+from ostorlab.agent.message import message, serializer
 from ostorlab.runtimes import definitions as runtime_definitions
 
 from agent import agent_inject_asset as agent_module
 from agent import repository_archive
-from agent.providers import errors
-from agent.providers import git
-from agent.providers import token
+from agent.providers import errors, git, token
 
 _REAL_MESSAGE_CODE_PATH = pathlib.Path(serializer.__file__).resolve().parent / "proto"
 _FAKE_MESSAGE_CODE_PATH = "/tmp/ostorlab/agent/message/proto"

@@ -10,11 +10,8 @@ from ostorlab.agent.message import message as agent_message
 from rich import logging as rich_logging
 
 from agent import repository_archive
-from agent.providers import base
-from agent.providers import git
+from agent.providers import base, git, registry, token
 from agent.providers import errors as provider_errors
-from agent.providers import registry
-from agent.providers import token
 
 ASSET_DIR = "/asset/"
 RAW_PATTERN = "asset.binproto_"
