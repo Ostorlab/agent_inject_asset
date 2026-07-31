@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from agent.providers import gitlab as gitlab_provider
 from agent.providers import base
+from agent.providers import gitlab as gitlab_provider
 
 
 def testGitLabCloner_whenCloneWithoutToken_shouldReturnOriginalUrl() -> None:

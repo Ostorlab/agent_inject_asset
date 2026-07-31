@@ -4,8 +4,7 @@ import subprocess
 
 import pytest
 
-from agent.providers import errors
-from agent.providers import git
+from agent.providers import errors, git
 
 
 def testIsPublicRepository_whenLsRemoteSucceeds_returnsTrue(

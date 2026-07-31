@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from agent.providers import bitbucket as bitbucket_provider
 from agent.providers import base
+from agent.providers import bitbucket as bitbucket_provider
 
 
 def testBitbucketCloner_whenCloneWithoutToken_shouldReturnOriginalUrl() -> None:

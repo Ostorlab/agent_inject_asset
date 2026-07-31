@@ -2,8 +2,7 @@
 
 import logging
 
-from agent.providers import base
-from agent.providers import git
+from agent.providers import base, git
 
 logger = logging.getLogger(__name__)
 
