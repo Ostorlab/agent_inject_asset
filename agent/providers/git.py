@@ -9,8 +9,7 @@ import os
 import subprocess
 import urllib.parse
 
-from agent.providers import base
-from agent.providers import errors
+from agent.providers import base, errors
 
 logger = logging.getLogger(__name__)
 
