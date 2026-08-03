@@ -40,6 +40,43 @@ class _FakeResponse:
             yield self._content[i : i + chunk_size]
 
 
+class _BrokenStreamResponse(_FakeResponse):
+    """A response whose body stops mid-stream, as on a dropped connection."""
+
+    def iter_content(self, chunk_size: int) -> collections.abc.Iterator[bytes]:
+        yield b"partial"
+        raise requests.exceptions.ChunkedEncodingError("connection broken")
+
+
+class _RecordingGet:
+    """A `requests.get` stand-in keeping every response it hands out."""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        self.responses: list[_FakeResponse] = []
+
+    def __call__(self, *args: object, **kwargs: object) -> _FakeResponse:
+        response = _FakeResponse(self._content)
+        self.responses.append(response)
+        return response
+
+
+class _NamedTemporaryFileSpy:
+    """A `tempfile.NamedTemporaryFile` stand-in recording the `dir` it is called with."""
+
+    def __init__(self) -> None:
+        self._original = repository_archive.tempfile.NamedTemporaryFile
+        self.dir_kwargs: list[str | None] = []
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        self.dir_kwargs.append(kwargs.get("dir"))
+        return self._original(*args, **kwargs)
+
+
+def _raise_connection_error(*args: object, **kwargs: object) -> None:
+    raise requests.ConnectionError("boom")
+
+
 def _build_zip(files: dict[str, str]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as zip_file:
@@ -206,11 +243,7 @@ def testDownloadArchive_whenConnectionFails_raisesArchiveDownloadError(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A network-level failure surfaces as an ArchiveDownloadError."""
-
-    def raise_connection_error(*args, **kwargs):
-        raise requests.ConnectionError("boom")
-
-    monkeypatch.setattr(repository_archive.requests, "get", raise_connection_error)
+    monkeypatch.setattr(repository_archive.requests, "get", _raise_connection_error)
 
     with pytest.raises(errors.ArchiveDownloadError):
         repository_archive.download_archive(
@@ -348,15 +381,9 @@ def testDownloadArchive_whenDownloading_stagesTempFileOnDestinationVolume(
     mock_archive_response: Callable[[bytes, int], None],
 ) -> None:
     """The temp archive file is created on the destination volume, not the system temp dir."""
-    dir_kwargs: list[str | None] = []
-    original_named_temporary_file = repository_archive.tempfile.NamedTemporaryFile
-
-    def spy_named_temporary_file(*args, **kwargs):
-        dir_kwargs.append(kwargs.get("dir"))
-        return original_named_temporary_file(*args, **kwargs)
-
+    named_temporary_file_spy = _NamedTemporaryFileSpy()
     monkeypatch.setattr(
-        repository_archive.tempfile, "NamedTemporaryFile", spy_named_temporary_file
+        repository_archive.tempfile, "NamedTemporaryFile", named_temporary_file_spy
     )
     zip_bytes = _build_zip({"main.py": "print('hi')"})
     mock_archive_response(zip_bytes, 200)
@@ -365,19 +392,13 @@ def testDownloadArchive_whenDownloading_stagesTempFileOnDestinationVolume(
         "https://storage.example.com/repo.zip", str(tmp_path)
     )
 
-    assert dir_kwargs == [str(tmp_path)]
+    assert named_temporary_file_spy.dir_kwargs == [str(tmp_path)]
 
 
 def testDownloadArchive_whenStreamingFailsMidDownload_raisesArchiveDownloadError(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A connection drop while streaming the body surfaces as an ArchiveDownloadError."""
-
-    class _BrokenStreamResponse(_FakeResponse):
-        def iter_content(self, chunk_size: int) -> collections.abc.Iterator[bytes]:
-            yield b"partial"
-            raise requests.exceptions.ChunkedEncodingError("connection broken")
-
     monkeypatch.setattr(
         repository_archive.requests,
         "get",
@@ -429,22 +450,16 @@ def testDownloadArchive_whenExtractionFailsAfterDownload_closesConnection(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The HTTP connection is released even when extraction fails after a successful download."""
-    responses: list[_FakeResponse] = []
-
-    def fake_get(*args, **kwargs) -> _FakeResponse:
-        response = _FakeResponse(b"not an archive")
-        responses.append(response)
-        return response
-
-    monkeypatch.setattr(repository_archive.requests, "get", fake_get)
+    recording_get = _RecordingGet(b"not an archive")
+    monkeypatch.setattr(repository_archive.requests, "get", recording_get)
 
     with pytest.raises(errors.ArchiveDownloadError):
         repository_archive.download_archive(
             "https://storage.example.com/repo.zip", str(tmp_path)
         )
 
-    assert len(responses) == 1
-    assert responses[0].closed is True
+    assert len(recording_get.responses) == 1
+    assert recording_get.responses[0].closed is True
 
 
 def testExtractContent_whenZipBytes_extractsFilesUnderDestination(
@@ -487,21 +502,15 @@ def testExtractContent_whenExtracting_stagesTempFileOnDestinationVolume(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The temp archive file is created on the destination volume, not the system temp dir."""
-    dir_kwargs: list[str | None] = []
-    original_named_temporary_file = repository_archive.tempfile.NamedTemporaryFile
-
-    def spy_named_temporary_file(*args, **kwargs):
-        dir_kwargs.append(kwargs.get("dir"))
-        return original_named_temporary_file(*args, **kwargs)
-
+    named_temporary_file_spy = _NamedTemporaryFileSpy()
     monkeypatch.setattr(
-        repository_archive.tempfile, "NamedTemporaryFile", spy_named_temporary_file
+        repository_archive.tempfile, "NamedTemporaryFile", named_temporary_file_spy
     )
     zip_bytes = _build_zip({"main.py": "print('hi')"})
 
     repository_archive.extract_content(zip_bytes, str(tmp_path))
 
-    assert dir_kwargs == [str(tmp_path)]
+    assert named_temporary_file_spy.dir_kwargs == [str(tmp_path)]
 
 
 def testExtractContent_whenDestinationCannotBeCreated_raisesArchiveDownloadError(

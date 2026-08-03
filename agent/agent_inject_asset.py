@@ -5,8 +5,10 @@ import logging
 import pathlib
 import urllib.parse
 
+from google.protobuf import message as protobuf_message
 from ostorlab.agent import agent
 from ostorlab.agent.message import message as agent_message
+from ostorlab.agent.message import serializer
 from rich import logging as rich_logging
 
 from agent import repository_archive
@@ -160,11 +162,18 @@ class AgentInjectAsset(agent.Agent):
         The archive is either downloaded from `content_url` or extracted directly
         from the embedded `content` bytes.
 
-        Raises `ArchiveDownloadError` when the archive cannot be extracted.
+        Raises `ArchiveDownloadError` when the payload cannot be parsed or the
+        archive cannot be extracted.
         """
-        archive_message = agent_message.Message.from_raw(
-            REPOSITORY_ARCHIVE_SELECTOR, asset
-        )
+        try:
+            archive_message = agent_message.Message.from_raw(
+                REPOSITORY_ARCHIVE_SELECTOR, asset
+            )
+        except (serializer.SerializationError, protobuf_message.DecodeError) as e:
+            raise provider_errors.ArchiveDownloadError(
+                f"Repository archive asset payload could not be parsed: {e}"
+            ) from e
+
         content_url = archive_message.data.get("content_url")
         content = archive_message.data.get("content")
 

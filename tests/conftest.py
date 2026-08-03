@@ -9,6 +9,31 @@ from ostorlab.agent.message import message
 _REPOSITORY_ARCHIVE_SELECTOR = "v3.asset.file.repository_archive"
 
 
+class _MockMessage:
+    """A parsed message stand-in exposing the fields the agent reads."""
+
+    def __init__(self, selector: str, raw: bytes, data: dict[str, Any]) -> None:
+        self.selector = selector
+        self.raw = raw
+        self.data = data
+
+
+class _MockFromRaw:
+    """A `message.Message.from_raw` stand-in returning `data` for the repository archive selector."""
+
+    def __init__(
+        self, original: Callable[[str, bytes], Any], data: dict[str, Any]
+    ) -> None:
+        self._original = original
+        self._data = data
+
+    def __call__(self, selector: str, raw: bytes) -> Any:
+        if selector == _REPOSITORY_ARCHIVE_SELECTOR:
+            return _MockMessage(selector, raw, self._data)
+
+        return self._original(selector, raw)
+
+
 @pytest.fixture
 def mock_repository_archive_message(
     monkeypatch: pytest.MonkeyPatch,
@@ -21,19 +46,8 @@ def mock_repository_archive_message(
     original_from_raw = message.Message.from_raw
 
     def _set(data: dict[str, Any]) -> None:
-        def mock_from_raw(selector: str, raw: bytes) -> Any:
-            if selector == _REPOSITORY_ARCHIVE_SELECTOR:
-
-                class _MockMessage:
-                    def __init__(self) -> None:
-                        self.data = data
-                        self.selector = selector
-                        self.raw = raw
-
-                return _MockMessage()
-
-            return original_from_raw(selector, raw)
-
-        monkeypatch.setattr(message.Message, "from_raw", mock_from_raw)
+        monkeypatch.setattr(
+            message.Message, "from_raw", _MockFromRaw(original_from_raw, data)
+        )
 
     return _set
