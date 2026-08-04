@@ -1,6 +1,7 @@
 """Unittests for the repository archive downloader."""
 
 import collections.abc
+import functools
 import io
 import pathlib
 import tarfile
@@ -14,6 +15,8 @@ from typing_extensions import Self
 
 from agent import repository_archive
 from agent.providers import errors
+
+_ARCHIVE_URL = "https://storage.example.com/repo.archive"
 
 
 class _FakeResponse:
@@ -48,15 +51,16 @@ class _BrokenStreamResponse(_FakeResponse):
         raise requests.exceptions.ChunkedEncodingError("connection broken")
 
 
-class _RecordingGet:
-    """A `requests.get` stand-in keeping every response it hands out."""
+class _FakeGet:
+    """A `requests.get` stand-in serving fixed bytes, keeping every response it hands out."""
 
-    def __init__(self, content: bytes) -> None:
+    def __init__(self, content: bytes, status_code: int = 200) -> None:
         self._content = content
+        self._status_code = status_code
         self.responses: list[_FakeResponse] = []
 
     def __call__(self, *args: object, **kwargs: object) -> _FakeResponse:
-        response = _FakeResponse(self._content)
+        response = _FakeResponse(self._content, self._status_code)
         self.responses.append(response)
         return response
 
@@ -85,493 +89,9 @@ def _build_zip(files: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
-def _build_tar_gz(files: dict[str, str]) -> bytes:
+def _build_tar(files: dict[str, str], mode: str = "w:gz") -> bytes:
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as tar_file:
-        for name, content in files.items():
-            data = content.encode()
-            info = tarfile.TarInfo(name=name)
-            info.size = len(data)
-            tar_file.addfile(info, io.BytesIO(data))
-    return buffer.getvalue()
-
-
-@pytest.fixture
-def mock_archive_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[bytes, int], None]:
-    """Return a setter that makes `repository_archive.requests.get` return a fake response with `content`."""
-
-    def _set(content: bytes, status_code: int = 200) -> None:
-        monkeypatch.setattr(
-            repository_archive.requests,
-            "get",
-            lambda *args, **kwargs: _FakeResponse(content, status_code),
-        )
-
-    return _set
-
-
-def testDownloadArchive_whenZipArchive_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A zip archive is downloaded and its contents extracted into the destination."""
-    zip_bytes = _build_zip({"src/main.py": "print('hi')", "README.md": "hello"})
-    mock_archive_response(zip_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.zip", str(tmp_path)
-    )
-
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi')"
-    assert (tmp_path / "README.md").read_text() == "hello"
-
-
-def testDownloadArchive_whenTarGzArchive_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A tar.gz archive is downloaded and its contents extracted into the destination."""
-    tar_bytes = _build_tar_gz({"src/main.py": "print('hi')"})
-    mock_archive_response(tar_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.tar.gz", str(tmp_path)
-    )
-
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi')"
-
-
-def testDownloadArchive_whenDestinationDoesNotExist_createsIt(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """The destination directory is created if the shared volume isn't mounted yet."""
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-    mock_archive_response(zip_bytes, 200)
-    destination = tmp_path / "code"
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.zip", str(destination)
-    )
-
-    assert (destination / "main.py").read_text() == "print('hi')"
-
-
-def testDownloadArchive_whenZipHasPathTraversalMember_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A member name (../..) that would escape the destination is rejected outright."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zip_file:
-        zip_file.writestr("../../evil.txt", "pwned")
-    mock_archive_response(buffer.getvalue(), 200)
-    destination = tmp_path / "code"
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(destination)
-        )
-
-    assert not (destination / "evil.txt").exists()
-    assert not (tmp_path / "evil.txt").exists()
-
-
-def testDownloadArchive_whenZipHasAbsolutePathMember_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A member with an absolute path is rejected outright."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zip_file:
-        zip_file.writestr("/etc/evil.txt", "pwned")
-    mock_archive_response(buffer.getvalue(), 200)
-    destination = tmp_path / "code"
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(destination)
-        )
-
-
-def testDownloadArchive_whenTarHasPathTraversalMember_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A tar member name (../..) that would escape the destination is rejected outright."""
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as tar_file:
-        data = b"pwned"
-        info = tarfile.TarInfo(name="../../evil.txt")
-        info.size = len(data)
-        tar_file.addfile(info, io.BytesIO(data))
-    mock_archive_response(buffer.getvalue(), 200)
-    destination = tmp_path / "code"
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.tar.gz", str(destination)
-        )
-
-    assert not (tmp_path / "evil.txt").exists()
-
-
-def testExtractContent_whenZipHasPathTraversalMember_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-) -> None:
-    """A member name (../..) in embedded content that would escape is rejected outright."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zip_file:
-        zip_file.writestr("../../evil.txt", "pwned")
-    destination = tmp_path / "code"
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.extract_content(buffer.getvalue(), str(destination))
-
-    assert not (tmp_path / "evil.txt").exists()
-
-
-def testDownloadArchive_whenServerReturnsErrorStatus_raisesArchiveDownloadError(
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A non-2xx response surfaces as an ArchiveDownloadError."""
-    mock_archive_response(b"", 403)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", "/code"
-        )
-
-
-def testDownloadArchive_whenConnectionFails_raisesArchiveDownloadError(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A network-level failure surfaces as an ArchiveDownloadError."""
-    monkeypatch.setattr(repository_archive.requests, "get", _raise_connection_error)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", "/code"
-        )
-
-
-def testDownloadArchive_whenArchiveExceedsMaxSize_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A download exceeding the configured size limit is aborted, not silently truncated."""
-    monkeypatch.setattr(repository_archive, "_MAX_ARCHIVE_BYTES", 10)
-    monkeypatch.setattr(repository_archive, "_CHUNK_SIZE", 4)
-    mock_archive_response(b"x" * 100, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-
-def testDownloadArchive_whenZipUncompressedSizeExceedsLimit_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A small zip that declares a huge uncompressed size is rejected before extraction."""
-    monkeypatch.setattr(repository_archive, "_MAX_EXTRACTED_BYTES", 10)
-    zip_bytes = _build_zip({"main.py": "print('hi')" * 10})
-    mock_archive_response(zip_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-    assert not (tmp_path / "main.py").exists()
-
-
-def testDownloadArchive_whenTarUncompressedSizeExceedsLimit_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A small tar.gz that declares a huge uncompressed size is rejected before extraction."""
-    monkeypatch.setattr(repository_archive, "_MAX_EXTRACTED_BYTES", 10)
-    tar_bytes = _build_tar_gz({"main.py": "print('hi')" * 10})
-    mock_archive_response(tar_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.tar.gz", str(tmp_path)
-        )
-
-    assert not (tmp_path / "main.py").exists()
-
-
-def testDownloadArchive_whenTarMemberCountExceedsLimit_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A tar with one member more than the limit is rejected before extraction."""
-    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
-    tar_bytes = _build_tar_gz({f"file{i}.py": "x" for i in range(4)})
-    mock_archive_response(tar_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.tar.gz", str(tmp_path)
-        )
-
-    assert not any((tmp_path / f"file{i}.py").exists() for i in range(4))
-
-
-def testDownloadArchive_whenTarMemberCountAtLimit_extractsFiles(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A tar with exactly as many members as the limit is accepted."""
-    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
-    tar_bytes = _build_tar_gz({f"file{i}.py": str(i) for i in range(3)})
-    mock_archive_response(tar_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.tar.gz", str(tmp_path)
-    )
-
-    for i in range(3):
-        assert (tmp_path / f"file{i}.py").read_text() == str(i)
-
-
-def testDownloadArchive_whenZipMemberCountExceedsLimit_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A zip with one member more than the limit is rejected before extraction."""
-    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
-    zip_bytes = _build_zip({f"file{i}.py": "x" for i in range(4)})
-    mock_archive_response(zip_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-    assert not any((tmp_path / f"file{i}.py").exists() for i in range(4))
-
-
-def testDownloadArchive_whenZipMemberCountAtLimit_extractsFiles(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """A zip with exactly as many members as the limit is accepted."""
-    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
-    zip_bytes = _build_zip({f"file{i}.py": str(i) for i in range(3)})
-    mock_archive_response(zip_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.zip", str(tmp_path)
-    )
-
-    for i in range(3):
-        assert (tmp_path / f"file{i}.py").read_text() == str(i)
-
-
-def testDownloadArchive_whenDownloading_stagesTempFileOnDestinationVolume(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_archive_response: Callable[[bytes, int], None],
-) -> None:
-    """The temp archive file is created on the destination volume, not the system temp dir."""
-    named_temporary_file_spy = _NamedTemporaryFileSpy()
-    monkeypatch.setattr(
-        repository_archive.tempfile, "NamedTemporaryFile", named_temporary_file_spy
-    )
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-    mock_archive_response(zip_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.zip", str(tmp_path)
-    )
-
-    assert named_temporary_file_spy.dir_kwargs == [str(tmp_path)]
-
-
-def testDownloadArchive_whenStreamingFailsMidDownload_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A connection drop while streaming the body surfaces as an ArchiveDownloadError."""
-    monkeypatch.setattr(
-        repository_archive.requests,
-        "get",
-        lambda *args, **kwargs: _BrokenStreamResponse(b""),
-    )
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-
-def testDownloadArchive_whenContentIsNotAnArchive_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """Content that is neither a zip nor a tar archive is rejected."""
-    mock_archive_response(b"not an archive", 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-
-def testDownloadArchive_whenExtractionFailsPartway_leavesNoFilesInDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A member that fails mid-extraction leaves no earlier-extracted files behind."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zip_file:
-        zip_file.writestr("first.txt", "first content")
-        zip_file.writestr("second.txt", "second content")
-    zip_bytes = bytearray(buffer.getvalue())
-    corrupt_at = zip_bytes.find(b"second content")
-    zip_bytes[corrupt_at] ^= 0xFF
-    mock_archive_response(bytes(zip_bytes), 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-    assert not (tmp_path / "first.txt").exists()
-    assert not (tmp_path / "second.txt").exists()
-    assert list(tmp_path.iterdir()) == []
-
-
-def testDownloadArchive_whenExtractionFailsAfterDownload_closesConnection(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The HTTP connection is released even when extraction fails after a successful download."""
-    recording_get = _RecordingGet(b"not an archive")
-    monkeypatch.setattr(repository_archive.requests, "get", recording_get)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(tmp_path)
-        )
-
-    assert len(recording_get.responses) == 1
-    assert recording_get.responses[0].closed is True
-
-
-def testExtractContent_whenZipBytes_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path,
-) -> None:
-    """Embedded zip bytes are extracted into the destination, no network call involved."""
-    zip_bytes = _build_zip({"src/main.py": "print('hi')"})
-
-    repository_archive.extract_content(zip_bytes, str(tmp_path))
-
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi')"
-
-
-def testExtractContent_whenDestinationDoesNotExist_createsIt(
-    tmp_path: pathlib.Path,
-) -> None:
-    """The destination directory is created if the shared volume isn't mounted yet."""
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-    destination = tmp_path / "code"
-
-    repository_archive.extract_content(zip_bytes, str(destination))
-
-    assert (destination / "main.py").read_text() == "print('hi')"
-
-
-def testExtractContent_whenUncompressedSizeExceedsLimit_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Embedded zip bytes declaring a huge uncompressed size are rejected before extraction."""
-    monkeypatch.setattr(repository_archive, "_MAX_EXTRACTED_BYTES", 10)
-    zip_bytes = _build_zip({"main.py": "print('hi')" * 10})
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.extract_content(zip_bytes, str(tmp_path))
-
-    assert not (tmp_path / "main.py").exists()
-
-
-def testExtractContent_whenExtracting_stagesTempFileOnDestinationVolume(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The temp archive file is created on the destination volume, not the system temp dir."""
-    named_temporary_file_spy = _NamedTemporaryFileSpy()
-    monkeypatch.setattr(
-        repository_archive.tempfile, "NamedTemporaryFile", named_temporary_file_spy
-    )
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-
-    repository_archive.extract_content(zip_bytes, str(tmp_path))
-
-    assert named_temporary_file_spy.dir_kwargs == [str(tmp_path)]
-
-
-def testExtractContent_whenDestinationCannotBeCreated_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-) -> None:
-    """An OSError creating the destination directory is wrapped, not raised raw."""
-    blocked_path = tmp_path / "blocked"
-    blocked_path.write_text("not a directory")
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.extract_content(zip_bytes, str(blocked_path))
-
-
-def testDownloadArchive_whenDestinationCannotBeCreated_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """An OSError creating the destination directory is wrapped, not raised raw."""
-    blocked_path = tmp_path / "blocked"
-    blocked_path.write_text("not a directory")
-    zip_bytes = _build_zip({"main.py": "print('hi')"})
-    mock_archive_response(zip_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.zip", str(blocked_path)
-        )
-
-
-def testExtractContent_whenContentIsNotAnArchive_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path,
-) -> None:
-    """Embedded content that is neither a zip nor a tar archive is rejected."""
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.extract_content(b"not an archive", str(tmp_path))
-
-
-def testExtractContent_whenContentExceedsMaxSize_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Embedded content larger than the configured size limit is rejected."""
-    monkeypatch.setattr(repository_archive, "_MAX_ARCHIVE_BYTES", 10)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.extract_content(b"x" * 100, str(tmp_path))
-
-
-def _build_tar_bz2(files: dict[str, str]) -> bytes:
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:bz2") as tar_file:
-        for name, content in files.items():
-            data = content.encode()
-            info = tarfile.TarInfo(name=name)
-            info.size = len(data)
-            tar_file.addfile(info, io.BytesIO(data))
-    return buffer.getvalue()
-
-
-def _build_tar_xz(files: dict[str, str]) -> bytes:
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:xz") as tar_file:
+    with tarfile.open(fileobj=buffer, mode=mode) as tar_file:
         for name, content in files.items():
             data = content.encode()
             info = tarfile.TarInfo(name=name)
@@ -588,98 +108,370 @@ def _build_7z(files: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
-def testDownloadArchive_whenTarBz2Archive_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
+_ARCHIVE_BUILDERS: dict[str, Callable[[dict[str, str]], bytes]] = {
+    "zip": _build_zip,
+    "tar.gz": _build_tar,
+    "tar.bz2": functools.partial(_build_tar, mode="w:bz2"),
+    "tar.xz": functools.partial(_build_tar, mode="w:xz"),
+    "7z": _build_7z,
+}
+
+# Formats whose member table is inspected before extraction, so the count and
+# path guards can be exercised against them.
+_INSPECTABLE_BUILDERS: dict[str, Callable[[dict[str, str]], bytes]] = {
+    "zip": _build_zip,
+    "tar.gz": _build_tar,
+}
+
+
+class _MockArchiveResponse:
+    """Installs a `requests.get` stand-in serving the given archive bytes."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._monkeypatch = monkeypatch
+
+    def __call__(self, content: bytes, status_code: int = 200) -> _FakeGet:
+        fake_get = _FakeGet(content, status_code)
+        self._monkeypatch.setattr(repository_archive.requests, "get", fake_get)
+        return fake_get
+
+
+class _DownloadArchive:
+    """Feeds archive bytes through `download_archive`, served over a mocked `requests.get`."""
+
+    def __init__(self, mock_archive_response: _MockArchiveResponse) -> None:
+        self._mock_archive_response = mock_archive_response
+
+    def __call__(self, content: bytes, destination: str) -> None:
+        self._mock_archive_response(content)
+        repository_archive.download_archive(_ARCHIVE_URL, destination)
+
+
+class _ExtractContent:
+    """Feeds archive bytes through `extract_content`."""
+
+    def __call__(self, content: bytes, destination: str) -> None:
+        repository_archive.extract_content(content, destination)
+
+
+@pytest.fixture
+def mock_archive_response(monkeypatch: pytest.MonkeyPatch) -> _MockArchiveResponse:
+    """Return a setter installing a `requests.get` stand-in that serves the given archive bytes."""
+    return _MockArchiveResponse(monkeypatch)
+
+
+@pytest.fixture(params=["download_archive", "extract_content"])
+def extract_archive(
+    request: pytest.FixtureRequest, mock_archive_response: _MockArchiveResponse
+) -> Callable[[bytes, str], None]:
+    """Both public entry points, so shared extraction behaviour is asserted against each.
+
+    `download_archive` and `extract_content` differ only in how the bytes reach
+    disk; everything after that is the same `_extract` call.
+    """
+    if request.param == "download_archive":
+        return _DownloadArchive(mock_archive_response)
+
+    return _ExtractContent()
+
+
+@pytest.mark.parametrize(
+    "build_archive", _ARCHIVE_BUILDERS.values(), ids=_ARCHIVE_BUILDERS.keys()
+)
+def testExtractArchive_whenSupportedFormat_extractsFilesUnderDestination(
+    tmp_path: pathlib.Path,
+    extract_archive: Callable[[bytes, str], None],
+    build_archive: Callable[[dict[str, str]], bytes],
 ) -> None:
-    """A tar.bz2 archive is downloaded and its contents extracted into the destination."""
-    tar_bytes = _build_tar_bz2({"src/main.py": "print('hi bzip2')"})
-    mock_archive_response(tar_bytes, 200)
+    """Every supported format is detected by its magic bytes and extracted."""
+    archive_bytes = build_archive({"src/main.py": "print('hi')", "README.md": "hello"})
 
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.tar.bz2", str(tmp_path)
-    )
+    extract_archive(archive_bytes, str(tmp_path))
 
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi bzip2')"
+    assert (tmp_path / "src" / "main.py").read_text() == "print('hi')"
+    assert (tmp_path / "README.md").read_text() == "hello"
 
 
-def testDownloadArchive_whenTarXzArchive_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
+def testExtractArchive_whenDestinationDoesNotExist_createsIt(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
 ) -> None:
-    """A tar.xz archive is downloaded and its contents extracted into the destination."""
-    tar_bytes = _build_tar_xz({"src/main.py": "print('hi xz')"})
-    mock_archive_response(tar_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.tar.xz", str(tmp_path)
-    )
-
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi xz')"
-
-
-def testDownloadArchive_when7zArchive_extractsFilesUnderDestination(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A 7z archive is downloaded and its contents extracted into the destination."""
-    sz_bytes = _build_7z({"src/main.py": "print('hi 7z')"})
-    mock_archive_response(sz_bytes, 200)
-
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.7z", str(tmp_path)
-    )
-
-    assert (tmp_path / "src" / "main.py").read_text() == "print('hi 7z')"
-
-
-def testDownloadArchive_when7zCorrupted_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A corrupted 7z archive raises ArchiveDownloadError."""
-    corrupt_7z_bytes = b"7z\xbc\xaf\x27\x1c" + b"random_corrupt_data"
-    mock_archive_response(corrupt_7z_bytes, 200)
-
-    with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.7z", str(tmp_path)
-        )
-
-
-def testDownloadArchive_when7zHasEscapingSymlink_raisesArchiveDownloadError(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
-) -> None:
-    """A 7z archive containing a symlink pointing outside the destination is rejected."""
-    staging = tmp_path / "staging"
-    (staging / "src").mkdir(parents=True)
-    (staging / "src" / "main.py").write_text("print('hi')")
-    (staging / "src" / "evil").symlink_to("/etc")
-
-    sz_bytes = io.BytesIO()
-    with py7zr.SevenZipFile(sz_bytes, "w") as sz_file:
-        sz_file.writeall(str(staging / "src"), "src")
-    mock_archive_response(sz_bytes.getvalue(), 200)
-
+    """The destination directory is created if the shared volume isn't mounted yet."""
+    zip_bytes = _build_zip({"main.py": "print('hi')"})
     destination = tmp_path / "code"
+
+    extract_archive(zip_bytes, str(destination))
+
+    assert (destination / "main.py").read_text() == "print('hi')"
+
+
+def testExtractArchive_whenDestinationCannotBeCreated_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
+) -> None:
+    """An OSError creating the destination directory is wrapped, not raised raw."""
+    blocked_path = tmp_path / "blocked"
+    blocked_path.write_text("not a directory")
+    zip_bytes = _build_zip({"main.py": "print('hi')"})
+
     with pytest.raises(errors.ArchiveDownloadError):
-        repository_archive.download_archive(
-            "https://storage.example.com/repo.7z", str(destination)
-        )
-
-    assert not (destination / "src" / "evil").exists()
+        extract_archive(zip_bytes, str(blocked_path))
 
 
-def testDownloadArchive_whenDestinationAlreadyPopulated_mergesEntries(
-    tmp_path: pathlib.Path, mock_archive_response: Callable[[bytes, int], None]
+def testExtractArchive_whenContentIsNotAnArchive_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
+) -> None:
+    """Content matching no known archive signature is rejected."""
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(b"not an archive", str(tmp_path))
+
+
+def testExtractArchive_whenStaging_putsTempFileOnDestinationVolume(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extract_archive: Callable[[bytes, str], None],
+) -> None:
+    """The temp archive file is created on the destination volume, not the system temp dir."""
+    named_temporary_file_spy = _NamedTemporaryFileSpy()
+    monkeypatch.setattr(
+        repository_archive.tempfile, "NamedTemporaryFile", named_temporary_file_spy
+    )
+    zip_bytes = _build_zip({"main.py": "print('hi')"})
+
+    extract_archive(zip_bytes, str(tmp_path))
+
+    assert named_temporary_file_spy.dir_kwargs == [str(tmp_path)]
+
+
+@pytest.mark.parametrize("member_name", ["../../evil.txt", "/etc/evil.txt"])
+@pytest.mark.parametrize(
+    "build_archive", _INSPECTABLE_BUILDERS.values(), ids=_INSPECTABLE_BUILDERS.keys()
+)
+def testExtractArchive_whenMemberEscapesDestination_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+    extract_archive: Callable[[bytes, str], None],
+    build_archive: Callable[[dict[str, str]], bytes],
+    member_name: str,
+) -> None:
+    """A member path that would land outside the destination is rejected outright."""
+    archive_bytes = build_archive({member_name: "pwned"})
+    destination = tmp_path / "code"
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(archive_bytes, str(destination))
+
+    assert not (destination / "evil.txt").exists()
+    assert not (tmp_path / "evil.txt").exists()
+
+
+@pytest.mark.parametrize(
+    "build_archive", _INSPECTABLE_BUILDERS.values(), ids=_INSPECTABLE_BUILDERS.keys()
+)
+def testExtractArchive_whenUncompressedSizeExceedsLimit_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extract_archive: Callable[[bytes, str], None],
+    build_archive: Callable[[dict[str, str]], bytes],
+) -> None:
+    """A small archive declaring a huge uncompressed size is rejected before extraction."""
+    monkeypatch.setattr(repository_archive, "_MAX_EXTRACTED_BYTES", 10)
+    archive_bytes = build_archive({"main.py": "print('hi')" * 10})
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(archive_bytes, str(tmp_path))
+
+    assert not (tmp_path / "main.py").exists()
+
+
+def testExtractArchive_whenArchiveExceedsMaxSize_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extract_archive: Callable[[bytes, str], None],
+) -> None:
+    """An archive over the size limit is rejected, not silently truncated."""
+    monkeypatch.setattr(repository_archive, "_MAX_ARCHIVE_BYTES", 10)
+    monkeypatch.setattr(repository_archive, "_CHUNK_SIZE", 4)
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(b"x" * 100, str(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "build_archive", _INSPECTABLE_BUILDERS.values(), ids=_INSPECTABLE_BUILDERS.keys()
+)
+def testExtractArchive_whenMemberCountExceedsLimit_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extract_archive: Callable[[bytes, str], None],
+    build_archive: Callable[[dict[str, str]], bytes],
+) -> None:
+    """An archive with one member more than the limit is rejected before extraction."""
+    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
+    archive_bytes = build_archive({f"file{i}.py": "x" for i in range(4)})
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(archive_bytes, str(tmp_path))
+
+    assert not any((tmp_path / f"file{i}.py").exists() for i in range(4))
+
+
+@pytest.mark.parametrize(
+    "build_archive", _INSPECTABLE_BUILDERS.values(), ids=_INSPECTABLE_BUILDERS.keys()
+)
+def testExtractArchive_whenMemberCountAtLimit_extractsFiles(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extract_archive: Callable[[bytes, str], None],
+    build_archive: Callable[[dict[str, str]], bytes],
+) -> None:
+    """An archive with exactly as many members as the limit is accepted."""
+    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 3)
+    archive_bytes = build_archive({f"file{i}.py": str(i) for i in range(3)})
+
+    extract_archive(archive_bytes, str(tmp_path))
+
+    for i in range(3):
+        assert (tmp_path / f"file{i}.py").read_text() == str(i)
+
+
+def testExtractArchive_whenExtractionFailsPartway_leavesNoFilesInDestination(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
+) -> None:
+    """A member that fails mid-extraction leaves no earlier-extracted files behind."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zip_file:
+        zip_file.writestr("first.txt", "first content")
+        zip_file.writestr("second.txt", "second content")
+    zip_bytes = bytearray(buffer.getvalue())
+    corrupt_at = zip_bytes.find(b"second content")
+    zip_bytes[corrupt_at] ^= 0xFF
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(bytes(zip_bytes), str(tmp_path))
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def testExtractArchive_whenDestinationAlreadyPopulated_mergesEntries(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
 ) -> None:
     """Re-extracting into a non-empty destination merges entries instead of crashing."""
     destination = tmp_path / "code"
     destination.mkdir(parents=True)
     (destination / "existing.py").write_text("keep")
-
     zip_bytes = _build_zip({"new.py": "print('new')"})
-    mock_archive_response(zip_bytes, 200)
 
-    repository_archive.download_archive(
-        "https://storage.example.com/repo.zip", str(destination)
-    )
+    extract_archive(zip_bytes, str(destination))
 
     assert (destination / "existing.py").read_text() == "keep"
     assert (destination / "new.py").read_text() == "print('new')"
+
+
+def testExtractArchive_when7zIsCorrupted_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
+) -> None:
+    """A truncated 7z archive surfaces as an ArchiveDownloadError, not a py7zr error."""
+    corrupt_7z_bytes = b"7z\xbc\xaf\x27\x1c" + b"random_corrupt_data"
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(corrupt_7z_bytes, str(tmp_path))
+
+
+def testExtractArchive_when7zHasEscapingSymlink_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, extract_archive: Callable[[bytes, str], None]
+) -> None:
+    """A 7z archive containing a symlink pointing outside the destination is rejected.
+
+    This asserts the end-to-end fail-closed behaviour only. Current `py7zr` refuses
+    such an archive itself, so the extraction never reaches
+    `_check_no_escaping_symlinks`; that guard is covered directly below.
+    """
+    staging = tmp_path / "staging"
+    (staging / "src").mkdir(parents=True)
+    (staging / "src" / "main.py").write_text("print('hi')")
+    (staging / "src" / "evil").symlink_to("/etc")
+    buffer = io.BytesIO()
+    with py7zr.SevenZipFile(buffer, "w") as sz_file:
+        sz_file.writeall(str(staging / "src"), "src")
+    destination = tmp_path / "code"
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        extract_archive(buffer.getvalue(), str(destination))
+
+    assert not (destination / "src" / "evil").exists()
+
+
+def testCheckNoEscapingSymlinks_whenSymlinkTargetsOutsideRoot_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The post-extraction guard rejects a symlink resolving outside the staging root.
+
+    Exercised directly rather than through a 7z archive: current `py7zr` refuses an
+    escaping symlink before extraction finishes, so an end-to-end test would pass
+    even with this guard removed.
+    """
+    root = tmp_path / "staging"
+    root.mkdir()
+    (root / "evil").symlink_to("/etc")
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive._check_no_escaping_symlinks(root)
+
+
+def testCheckNoEscapingSymlinks_whenSymlinkStaysInsideRoot_doesNotRaise(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A symlink pointing within the staging root is left in place."""
+    root = tmp_path / "staging"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("print('hi')")
+    (root / "link.py").symlink_to(root / "src" / "main.py")
+
+    repository_archive._check_no_escaping_symlinks(root)
+
+    assert (root / "link.py").read_text() == "print('hi')"
+
+
+def testDownloadArchive_whenServerReturnsErrorStatus_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, mock_archive_response: _MockArchiveResponse
+) -> None:
+    """A non-2xx response surfaces as an ArchiveDownloadError."""
+    mock_archive_response(b"", 403)
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive.download_archive(_ARCHIVE_URL, str(tmp_path))
+
+
+def testDownloadArchive_whenConnectionFails_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A network-level failure surfaces as an ArchiveDownloadError."""
+    monkeypatch.setattr(repository_archive.requests, "get", _raise_connection_error)
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive.download_archive(_ARCHIVE_URL, str(tmp_path))
+
+
+def testDownloadArchive_whenStreamingFailsMidDownload_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A connection drop while streaming the body surfaces as an ArchiveDownloadError."""
+    monkeypatch.setattr(
+        repository_archive.requests,
+        "get",
+        lambda *args, **kwargs: _BrokenStreamResponse(b""),
+    )
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive.download_archive(_ARCHIVE_URL, str(tmp_path))
+
+
+def testDownloadArchive_whenExtractionFailsAfterDownload_closesConnection(
+    tmp_path: pathlib.Path, mock_archive_response: _MockArchiveResponse
+) -> None:
+    """The HTTP connection is released even when extraction fails after a successful download."""
+    fake_get = mock_archive_response(b"not an archive")
+
+    with pytest.raises(errors.ArchiveDownloadError):
+        repository_archive.download_archive(_ARCHIVE_URL, str(tmp_path))
+
+    assert len(fake_get.responses) == 1
+    assert fake_get.responses[0].closed is True
