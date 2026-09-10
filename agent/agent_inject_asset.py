@@ -9,6 +9,7 @@ from ostorlab.agent import agent
 from ostorlab.agent.message import message as agent_message
 from rich import logging as rich_logging
 
+from agent import repository_archive
 from agent.providers import base, git, registry, token
 from agent.providers import errors as provider_errors
 
@@ -16,6 +17,7 @@ ASSET_DIR = "/asset/"
 RAW_PATTERN = "asset.binproto_"
 SELECTOR_PATTERN = "/asset/selector.txt_"
 REPOSITORY_SELECTOR = "v3.asset.repository"
+REPOSITORY_ARCHIVE_SELECTOR = "v3.asset.file.repository_archive"
 SHARED_VOLUME_DIR = "/code"
 
 # Before Ostorlab version 0.3.1 (including).
@@ -83,6 +85,12 @@ class AgentInjectAsset(agent.Agent):
             except provider_errors.CloneError as e:
                 logger.error("skipping repository asset: %s", e)
                 return
+        elif selector == REPOSITORY_ARCHIVE_SELECTOR:
+            try:
+                self._persist_repository_archive(asset)
+            except provider_errors.ArchiveDownloadError as e:
+                logger.error("skipping repository archive asset: %s", e)
+                return
 
         logger.info("injecting asset of size %d to selector %s", len(asset), selector)
         self.emit_raw(selector=selector, raw=asset)
@@ -145,6 +153,32 @@ class AgentInjectAsset(agent.Agent):
             git.redact_url(ref.repository_url),
             SHARED_VOLUME_DIR,
         )
+
+    def _persist_repository_archive(self, asset: bytes) -> None:
+        """Extract the repository archive asset onto the shared scan volume.
+
+        The archive is downloaded from `content_url`, or extracted directly from
+        embedded `content` bytes. A scan carries a single asset here, so both land
+        in `SHARED_VOLUME_DIR` directly, the same way `_checkout_repository` does.
+
+        Raises `ArchiveDownloadError` when the archive cannot be extracted.
+        """
+        archive_message = agent_message.Message.from_raw(
+            REPOSITORY_ARCHIVE_SELECTOR, asset
+        )
+        content_url = archive_message.data.get("content_url")
+        content = archive_message.data.get("content")
+
+        if content_url is not None and content_url != "":
+            repository_archive.download_archive(content_url, SHARED_VOLUME_DIR)
+        elif content is not None and content != b"":
+            repository_archive.extract_content(content, SHARED_VOLUME_DIR)
+        else:
+            raise provider_errors.ArchiveDownloadError(
+                "repository archive asset is missing both content and content_url"
+            )
+
+        logger.info("extracted repository archive into %s", SHARED_VOLUME_DIR)
 
 
 if __name__ == "__main__":

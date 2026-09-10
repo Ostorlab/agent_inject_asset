@@ -1,4 +1,5 @@
-ostorlab[agent]
+ostorlab[agent]>=2.10.0
 rich
 requests
 tenacity
+py7zr
