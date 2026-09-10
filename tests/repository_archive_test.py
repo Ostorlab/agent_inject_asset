@@ -3,6 +3,7 @@
 import io
 import pathlib
 import tarfile
+from typing import Self
 import zipfile
 
 import py7zr
@@ -44,7 +45,7 @@ class _FakeResponse:
     def __init__(self, content: bytes) -> None:
         self._content = content
 
-    def __enter__(self) -> "_FakeResponse":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:
