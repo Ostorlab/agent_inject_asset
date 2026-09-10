@@ -1,11 +1,16 @@
-"""Exceptions raised by the repository providers.
+"""Exceptions raised while persisting an asset onto the shared volume.
 
-All provider failures surface as `CloneError` (or a subclass) so the agent core
-catches a single type regardless of forge.
+All failures derive from `Error`, so the agent core can catch a single type.
+Two families sit under it: `CloneError` (and its subclasses) for repository
+checkout failures, and `ArchiveDownloadError` for repository archive failures.
 """
 
 
-class CloneError(Exception):
+class Error(Exception):
+    """Base exception for all asset persistence errors."""
+
+
+class CloneError(Error):
     """Raised when a repository cannot be checked out onto the shared volume."""
 
 
@@ -17,5 +22,5 @@ class UnsupportedProviderError(CloneError):
     """Raised when no provider matches a repository URL."""
 
 
-class ArchiveDownloadError(Exception):
+class ArchiveDownloadError(Error):
     """Raised when a repository archive cannot be persisted onto the shared volume."""

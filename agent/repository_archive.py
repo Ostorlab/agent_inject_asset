@@ -4,7 +4,6 @@ import collections.abc
 import datetime
 import logging
 import pathlib
-import struct
 import tarfile
 import tempfile
 import zipfile
@@ -39,7 +38,9 @@ _FORMAT_SIGNATURES: dict[bytes, str] = {
 }
 
 
-def _check_member_paths(members: list[str], destination: pathlib.Path) -> None:
+def _check_member_paths(
+    members: collections.abc.Sequence[str], destination: pathlib.Path
+) -> None:
     """Reject any member whose resolved path would land outside `destination`.
 
     Zip-only: `ZipFile.extractall` already neutralizes "../" and absolute paths on its
@@ -100,6 +101,27 @@ def _collect_tar_members(tar_file: tarfile.TarFile) -> list[tarfile.TarInfo]:
     return members
 
 
+def _check_extracted_symlinks(directory: pathlib.Path) -> None:
+    """Reject any symlink under `directory` whose target escapes it.
+
+    The lexical `_check_member_paths` check runs before extraction and therefore
+    cannot see link semantics. Tar gets containment from `filter="data"` and zip
+    from `extractall` sanitization, but the 7z branch materializes symlink members
+    as real symlinks, so a `link -> ../..` entry followed by `link/evil` would
+    write outside the destination. Current py7zr refuses such archives itself;
+    auditing here keeps the guarantee ours rather than a transitive dependency's.
+    """
+    directory_resolved = directory.resolve()
+    for entry in directory.rglob("*"):
+        if entry.is_symlink() is False:
+            continue
+        target_resolved = (entry.parent / entry.readlink()).resolve()
+        if target_resolved.is_relative_to(directory_resolved) is False:
+            raise errors.ArchiveDownloadError(
+                f"Archive symlink {entry.name!r} points outside the destination"
+            )
+
+
 def _get_archive_format(archive_path: pathlib.Path) -> str | None:
     """Determine the archive format from its header signature."""
     with archive_path.open("rb") as f:
@@ -133,51 +155,60 @@ def _extract(archive_path: pathlib.Path, destination: pathlib.Path) -> None:
     with tempfile.TemporaryDirectory(dir=str(destination)) as staging_dir_name:
         staging_dir = pathlib.Path(staging_dir_name)
 
-        if archive_format == "zip":
-            with zipfile.ZipFile(archive_path) as zip_file:
-                _check_member_count(zip_file.infolist())
-                _check_member_paths(zip_file.namelist(), staging_dir)
-                _check_extracted_size(info.file_size for info in zip_file.infolist())
-                zip_file.extractall(staging_dir)
+        # Every archive library signals corruption with its own exception type, and the
+        # list is neither documented nor stable: a truncated gzip surfaces as EOFError,
+        # a corrupt deflate stream as zlib.error, xz as lzma.LZMAError, 7z as CrcError
+        # or DecompressionError. Enumerating them invites the next one to escape and
+        # crash start(), aborting the whole scan instead of skipping one asset. So this
+        # is the single boundary where any library failure becomes ArchiveDownloadError;
+        # the guards above raise it already and pass through untouched.
+        try:
+            if archive_format == "zip":
+                with zipfile.ZipFile(archive_path) as zip_file:
+                    _check_member_count(zip_file.infolist())
+                    _check_member_paths(zip_file.namelist(), staging_dir)
+                    _check_extracted_size(
+                        info.file_size for info in zip_file.infolist()
+                    )
+                    zip_file.extractall(staging_dir)
 
-        elif archive_format in {"tar", "gzip", "bzip2", "xz", "lzma"}:
-            try:
+            elif archive_format in {"tar", "gzip", "bzip2", "xz", "lzma"}:
                 with tarfile.open(archive_path) as tar_file:
                     members = _collect_tar_members(tar_file)
                     _check_member_paths([m.name for m in members], staging_dir)
                     _check_extracted_size([m.size for m in members])
                     tar_file.extractall(staging_dir, members, filter="data")
-            except tarfile.TarError as exc:
-                raise errors.ArchiveDownloadError(
-                    "Invalid or corrupted tar archive."
-                ) from exc
 
-        elif archive_format == "7z":
-            try:
-                with py7zr.SevenZipFile(archive_path, mode="r") as sz_file:
-                    archive_members = sz_file.list()
-                    _check_member_count(archive_members)
-                    _check_extracted_size(
-                        info.uncompressed
-                        for info in archive_members
-                        if info.is_directory is False
-                    )
-                    _check_member_paths(
-                        [info.filename for info in archive_members], staging_dir
-                    )
-                    sz_file.extractall(str(staging_dir))
-            except (py7zr.Bad7zFile, struct.error) as exp:
+            elif archive_format == "7z":
+                try:
+                    with py7zr.SevenZipFile(archive_path, mode="r") as sz_file:
+                        archive_members = sz_file.list()
+                        _check_member_count(archive_members)
+                        _check_extracted_size(
+                            info.uncompressed
+                            for info in archive_members
+                            if info.is_directory is False
+                        )
+                        _check_member_paths(
+                            [info.filename for info in archive_members], staging_dir
+                        )
+                        sz_file.extractall(str(staging_dir))
+                except py7zr.PasswordRequired as exp:
+                    raise errors.ArchiveDownloadError(
+                        "7z archive is password protected."
+                    ) from exp
+                _check_extracted_symlinks(staging_dir)
+
+            else:
                 raise errors.ArchiveDownloadError(
-                    "Invalid or corrupted 7z archive."
-                ) from exp
-            except py7zr.PasswordRequired as exp:
-                raise errors.ArchiveDownloadError(
-                    "7z archive is password protected."
-                ) from exp
-        else:
+                    f"Unsupported repository archive format at {archive_path}"
+                )
+        except errors.ArchiveDownloadError:
+            raise
+        except Exception as exc:
             raise errors.ArchiveDownloadError(
-                f"Unsupported repository archive format at {archive_path}"
-            )
+                f"Invalid or corrupted {archive_format} archive: {type(exc).__name__}"
+            ) from exc
 
         for entry in staging_dir.iterdir():
             entry.rename(destination / entry.name)
@@ -208,14 +239,16 @@ def download_archive(content_url: str, destination: str) -> None:
                     archive_file.write(chunk)
                 archive_file.flush()
                 _extract(pathlib.Path(archive_file.name), destination_dir)
+    except errors.ArchiveDownloadError:
+        raise
     except requests.RequestException as e:
         logger.error("Failed to download repository archive: %s", type(e).__name__)
         raise errors.ArchiveDownloadError(
             "Failed to download repository archive"
         ) from e
-    except (zipfile.BadZipFile, tarfile.TarError, OSError, ValueError) as e:
+    except Exception as e:
         raise errors.ArchiveDownloadError(
-            f"Failed to download or extract repository archive: {e}"
+            f"Failed to download or extract repository archive: {type(e).__name__}"
         ) from e
 
 
@@ -237,7 +270,9 @@ def extract_content(content: bytes, destination: str) -> None:
             archive_file.write(content)
             archive_file.flush()
             _extract(pathlib.Path(archive_file.name), destination_dir)
-    except (zipfile.BadZipFile, tarfile.TarError, OSError, ValueError) as e:
+    except errors.ArchiveDownloadError:
+        raise
+    except Exception as e:
         raise errors.ArchiveDownloadError(
-            f"Failed to extract embedded repository archive: {e}"
+            f"Failed to extract embedded repository archive: {type(e).__name__}"
         ) from e

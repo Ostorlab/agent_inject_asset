@@ -238,3 +238,88 @@ def testDownloadArchive_whenDownloadExceedsSizeLimit_raisesArchiveDownloadError(
         repository_archive.download_archive(
             "https://example.com/repo.zip", str(tmp_path)
         )
+
+
+def _build_corrupt(content: bytes, start: int, length: int) -> bytes:
+    corrupted = bytearray(content)
+    corrupted[start : start + length] = b"\x00" * length
+    return bytes(corrupted)
+
+
+def testExtractContent_whenTarGzIsTruncated_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures a truncated gzip stream is reported as an archive failure."""
+    content = _build_tar_gz({"big.txt": "x" * 200000})
+
+    with pytest.raises(provider_errors.ArchiveDownloadError):
+        repository_archive.extract_content(content[: len(content) // 2], str(tmp_path))
+
+
+def testExtractContent_whenZipDeflateStreamIsCorrupt_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures a corrupt deflate stream is reported as an archive failure."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr("a.txt", "y" * 100000)
+    content = _build_corrupt(buffer.getvalue(), 80, 120)
+
+    with pytest.raises(provider_errors.ArchiveDownloadError):
+        repository_archive.extract_content(content, str(tmp_path))
+
+
+def testExtractContent_when7zPayloadIsCorrupt_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures a corrupt 7z payload is reported as an archive failure."""
+    content = _build_7z({"a.txt": "z" * 50000})
+
+    with pytest.raises(provider_errors.ArchiveDownloadError):
+        repository_archive.extract_content(
+            _build_corrupt(content, len(content) - 60, 60), str(tmp_path)
+        )
+
+
+def testExtractContent_when7zMemberCountExceedsLimit_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensures the member-count cap is wired for the 7z branch."""
+    monkeypatch.setattr(repository_archive, "_MAX_MEMBERS", 2)
+    content = _build_7z({f"file_{i}.txt": "x" for i in range(5)})
+
+    with pytest.raises(provider_errors.ArchiveDownloadError, match="member count"):
+        repository_archive.extract_content(content, str(tmp_path))
+
+
+def testExtractContent_when7zUncompressedSizeExceedsLimit_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensures the uncompressed-size cap is wired for the 7z branch."""
+    monkeypatch.setattr(repository_archive, "_MAX_EXTRACTED_BYTES", 5)
+    content = _build_7z({"big.txt": "x" * 100})
+
+    with pytest.raises(provider_errors.ArchiveDownloadError, match="uncompressed size"):
+        repository_archive.extract_content(content, str(tmp_path))
+
+
+def testCheckExtractedSymlinks_whenSymlinkEscapesDirectory_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures a symlink resolving outside the staging directory is rejected."""
+    (tmp_path / "link").symlink_to("../../../../etc")
+
+    with pytest.raises(provider_errors.ArchiveDownloadError, match="symlink"):
+        repository_archive._check_extracted_symlinks(tmp_path)
+
+
+def testCheckExtractedSymlinks_whenSymlinkStaysInsideDirectory_isAccepted(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures an internal symlink is left alone."""
+    (tmp_path / "real.txt").write_text("data")
+    (tmp_path / "link").symlink_to("real.txt")
+
+    repository_archive._check_extracted_symlinks(tmp_path)
+
+    assert (tmp_path / "link").read_text() == "data"
