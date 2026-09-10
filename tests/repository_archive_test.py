@@ -3,8 +3,8 @@
 import io
 import pathlib
 import tarfile
-from typing import Self
 import zipfile
+from typing import Self
 
 import py7zr
 import pytest
