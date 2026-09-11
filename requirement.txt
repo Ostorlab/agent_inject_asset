@@ -2,3 +2,4 @@ ostorlab[agent]
 rich
 requests
 tenacity
+py7zr
