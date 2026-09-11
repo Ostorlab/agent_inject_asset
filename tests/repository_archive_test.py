@@ -336,7 +336,7 @@ def testCheckExtractedSymlinks_whenSymlinkEscapesDirectory_raisesArchiveDownload
     (tmp_path / "link").symlink_to("../../../../etc")
 
     with pytest.raises(provider_errors.ArchiveDownloadError, match="symlink"):
-        repository_archive._check_extracted_symlinks(tmp_path)
+        repository_archive.check_extracted_symlinks(tmp_path)
 
 
 def testCheckExtractedSymlinks_whenSymlinkStaysInsideDirectory_isAccepted(
@@ -346,6 +346,6 @@ def testCheckExtractedSymlinks_whenSymlinkStaysInsideDirectory_isAccepted(
     (tmp_path / "real.txt").write_text("data")
     (tmp_path / "link").symlink_to("real.txt")
 
-    repository_archive._check_extracted_symlinks(tmp_path)
+    repository_archive.check_extracted_symlinks(tmp_path)
 
     assert (tmp_path / "link").read_text() == "data"

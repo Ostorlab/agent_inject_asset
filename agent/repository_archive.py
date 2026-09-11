@@ -152,7 +152,7 @@ def _collect_tar_members(tar_file: tarfile.TarFile) -> list[tarfile.TarInfo]:
     return members
 
 
-def _check_extracted_symlinks(directory: pathlib.Path) -> None:
+def check_extracted_symlinks(directory: pathlib.Path) -> None:
     """Reject any symlink under `directory` whose target escapes it.
 
     The lexical `_check_member_paths` check runs before extraction and therefore
@@ -250,7 +250,7 @@ def _extract(archive_path: pathlib.Path, destination: pathlib.Path) -> None:
                     raise errors.ArchiveDownloadError(
                         "7z archive is password protected."
                     ) from exp
-                _check_extracted_symlinks(staging_dir)
+                check_extracted_symlinks(staging_dir)
 
             else:
                 raise errors.ArchiveDownloadError(
