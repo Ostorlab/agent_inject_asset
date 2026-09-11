@@ -1,7 +1,7 @@
 """Unittests for the repository archive module."""
 
-import io
 import gzip
+import io
 import lzma
 import pathlib
 import tarfile
