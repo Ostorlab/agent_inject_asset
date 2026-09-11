@@ -4,6 +4,7 @@ import collections.abc
 import datetime
 import logging
 import pathlib
+import struct
 import tarfile
 import tempfile
 import zipfile
@@ -20,6 +21,7 @@ _CHUNK_SIZE = 1024 * 1024
 _MAX_ARCHIVE_BYTES = 5 * 1024 * 1024 * 1024
 _MAX_EXTRACTED_BYTES = 10 * 1024 * 1024 * 1024
 _MAX_MEMBERS = 1_000_000
+_MAX_7Z_HEADER_BYTES = 256 * 1024 * 1024
 
 _TAR_MAGIC_OFFSET_START = 257
 _TAR_MAGIC_OFFSET_END = 262
@@ -33,7 +35,7 @@ _FORMAT_SIGNATURES: dict[bytes, str] = {
     b"\x1f\x8b": "gzip",
     b"BZh": "bzip2",
     b"\xfd7zXZ\x00": "xz",
-    b"\x5d\x00\x00\x00\x00": "lzma",
+    b"\x5d\x00": "lzma",
     b"7z\xbc\xaf\x27\x1c": "7z",
 }
 
@@ -77,6 +79,55 @@ def _check_member_count(members: collections.abc.Sized) -> None:
     if count > _MAX_MEMBERS:
         raise errors.ArchiveDownloadError(
             f"Archive member count {count} exceeds {_MAX_MEMBERS} limit"
+        )
+
+
+def _check_zip_member_count(archive_path: pathlib.Path) -> None:
+    """Reject an oversized ZIP member count before ZipFile parses the directory."""
+    with archive_path.open("rb") as archive_file:
+        archive_file.seek(0, 2)
+        archive_size = archive_file.tell()
+        trailer_size = min(archive_size, 22 + 65535)
+        archive_file.seek(archive_size - trailer_size)
+        trailer = archive_file.read(trailer_size)
+
+        eocd_offset = trailer.rfind(b"PK\x05\x06")
+        if eocd_offset < 0:
+            return
+
+        member_count = struct.unpack_from("<H", trailer, eocd_offset + 10)[0]
+        if member_count == 0xFFFF:
+            eocd_absolute_offset = archive_size - trailer_size + eocd_offset
+            locator_absolute_offset = eocd_absolute_offset - 20
+            if locator_absolute_offset >= 0:
+                archive_file.seek(locator_absolute_offset)
+                locator = archive_file.read(20)
+                if locator.startswith(b"PK\x06\x07"):
+                    zip64_offset = struct.unpack_from("<Q", locator, 8)[0]
+                    archive_file.seek(zip64_offset)
+                    zip64_eocd = archive_file.read(56)
+                    if zip64_eocd.startswith(b"PK\x06\x06"):
+                        member_count = struct.unpack_from("<Q", zip64_eocd, 32)[0]
+
+        if member_count > _MAX_MEMBERS:
+            raise errors.ArchiveDownloadError(
+                f"Archive member count {member_count} exceeds {_MAX_MEMBERS} limit"
+            )
+
+
+def _check_7z_header_size(archive_path: pathlib.Path) -> None:
+    """Reject an oversized 7z metadata header before py7zr parses it."""
+    with archive_path.open("rb") as archive_file:
+        signature_header = archive_file.read(32)
+
+    if not signature_header.startswith(b"7z\xbc\xaf\x27\x1c"):
+        return
+
+    next_header_size = struct.unpack_from("<Q", signature_header, 20)[0]
+    if next_header_size > _MAX_7Z_HEADER_BYTES:
+        raise errors.ArchiveDownloadError(
+            f"7z header size {next_header_size} exceeds "
+            f"{_MAX_7Z_HEADER_BYTES} bytes limit"
         )
 
 
@@ -164,6 +215,7 @@ def _extract(archive_path: pathlib.Path, destination: pathlib.Path) -> None:
         # the guards above raise it already and pass through untouched.
         try:
             if archive_format == "zip":
+                _check_zip_member_count(archive_path)
                 with zipfile.ZipFile(archive_path) as zip_file:
                     _check_member_count(zip_file.infolist())
                     _check_member_paths(zip_file.namelist(), staging_dir)
@@ -181,6 +233,7 @@ def _extract(archive_path: pathlib.Path, destination: pathlib.Path) -> None:
 
             elif archive_format == "7z":
                 try:
+                    _check_7z_header_size(archive_path)
                     with py7zr.SevenZipFile(archive_path, mode="r") as sz_file:
                         archive_members = sz_file.list()
                         _check_member_count(archive_members)

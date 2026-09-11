@@ -1,6 +1,8 @@
 """Unittests for the repository archive module."""
 
 import io
+import gzip
+import lzma
 import pathlib
 import tarfile
 import zipfile
@@ -78,6 +80,18 @@ def testExtractContent_whenTarGzArchive_extractsFilesIntoDestination(
 ) -> None:
     """Ensures a gzip-compressed tar archive is extracted into the destination."""
     content = _build_tar_gz({"src/main.py": "print('hello')"})
+
+    repository_archive.extract_content(content, str(tmp_path))
+
+    assert (tmp_path / "src" / "main.py").read_text() == "print('hello')"
+
+
+def testExtractContent_whenLzmaArchive_extractsFilesIntoDestination(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Ensures an LZMA-alone tar archive is detected and extracted."""
+    tar_content = gzip.decompress(_build_tar_gz({"src/main.py": "print('hello')"}))
+    content = lzma.compress(tar_content, format=lzma.FORMAT_ALONE)
 
     repository_archive.extract_content(content, str(tmp_path))
 
@@ -301,6 +315,17 @@ def testExtractContent_when7zUncompressedSizeExceedsLimit_raisesArchiveDownloadE
     content = _build_7z({"big.txt": "x" * 100})
 
     with pytest.raises(provider_errors.ArchiveDownloadError, match="uncompressed size"):
+        repository_archive.extract_content(content, str(tmp_path))
+
+
+def testExtractContent_when7zHeaderExceedsLimit_raisesArchiveDownloadError(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensures oversized 7z metadata is rejected before py7zr parses it."""
+    monkeypatch.setattr(repository_archive, "_MAX_7Z_HEADER_BYTES", 0)
+    content = _build_7z({"README.md": "# repo"})
+
+    with pytest.raises(provider_errors.ArchiveDownloadError, match="header size"):
         repository_archive.extract_content(content, str(tmp_path))
 
 
